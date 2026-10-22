@@ -305,7 +305,7 @@ jobs:
       - name: Compute SHA-256 Checksums
         run: |
           cd published-assets
-          sha256sum * > SHA256SUMS
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS
           cat SHA256SUMS
 
       # Publish GitHub Release

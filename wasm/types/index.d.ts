@@ -55,9 +55,10 @@ export class WasmVaultHandle {
     rehydrate<T = any>(toolArgs: T, destination: string): T;
 
     /**
-     * Explicitly frees the vault, immediately dropping all session salt and tokens (`NFR2`).
+     * Explicitly frees or destroys the vault, immediately dropping all session salt and tokens (`NFR2`).
      */
     free(): void;
+    destroy(): void;
 }
 
 /**

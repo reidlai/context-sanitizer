@@ -108,10 +108,6 @@ console.log('\n[Test 1] Ingestion, Root Redaction, Vaulting, and Tool Minificati
     assert.strictEqual(parsedSanitized.tools[0].function.parameters.required[0], 'user_email', 'Tool required param preserved');
 
     // 5. Authorized Rehydration
-    const toolCallArgs = JSON.stringify({
-        user_email: '<SHADOW:EMAIL_d41d8c>', // dynamic lookup below
-    });
-    // Find the actual shadow token for alice from sanitized output
     const match = sanitizedJson.match(/<SHADOW:EMAIL_[a-f0-9]{6}>/);
     assert.ok(match, 'Shadow token regex match should exist');
     const shadowEmail = match[0];
@@ -133,17 +129,107 @@ console.log('\n[Test 1] Ingestion, Root Redaction, Vaulting, and Tool Minificati
         'Rehydration with unwhitelisted destination must throw UnauthorizedRehydrationError'
     );
 
-    // 7. Explicit Free drops memory and subsequent access throws
-    vault.free();
+    // 7. Explicit destroy drops memory and subsequent access throws
+    vault.destroy();
     assert.throws(
         () => {
             vault.rehydrate(JSON.stringify({ email: shadowEmail }), 'crm_lookup');
         },
         /freed|null pointer|destroyed|moved/i,
-        'Calling rehydrate on freed vault must throw'
+        'Calling rehydrate on destroyed vault must throw'
     );
 
     console.log('  -> PASSED: Ingestion, redaction, vaulting, and memory safety verified.');
+}
+
+// ---------------------------------------------------------------------------
+// Test 1b: Raw Text String Input
+// ---------------------------------------------------------------------------
+console.log('\n[Test 1b] Raw text string input...');
+{
+    const rawInput = 'User alice@acme.com leaked key AKIAIOSFODNN7EXAMPLE in server log.';
+    const { sanitizedJson, vault } = sanitize(rawInput, 0.8, ['crm']);
+    assert.strictEqual(sanitizedJson.includes('AKIAIOSFODNN7EXAMPLE'), false);
+    assert.ok(sanitizedJson.includes('[REDACTED_CREDENTIAL]'));
+    assert.strictEqual(sanitizedJson.includes('alice@acme.com'), false);
+    assert.ok(sanitizedJson.includes('<SHADOW:EMAIL_'));
+
+    const rehydrated = vault.rehydrate(sanitizedJson, 'crm');
+    assert.ok(rehydrated.includes('alice@acme.com'));
+    vault.destroy();
+    console.log('  -> PASSED: Raw text string input verified.');
+}
+
+// ---------------------------------------------------------------------------
+// Test 1c: Legacy { prompt: "..." } Completion Request
+// ---------------------------------------------------------------------------
+console.log('\n[Test 1c] Legacy { prompt: "..." } completion request...');
+{
+    const compReq = {
+        prompt: 'Query customer support for bob.jones@example.com using AKIAIOSFODNN7EXAMPLE',
+        max_tokens: 100
+    };
+    const { sanitizedJson, vault } = sanitize(JSON.stringify(compReq), 1.0, ['support']);
+    const parsed = JSON.parse(sanitizedJson);
+    assert.strictEqual(parsed.max_tokens, 100);
+    assert.strictEqual(parsed.prompt.includes('AKIAIOSFODNN7EXAMPLE'), false);
+    assert.ok(parsed.prompt.includes('[REDACTED_CREDENTIAL]'));
+    assert.strictEqual(parsed.prompt.includes('bob.jones@example.com'), false);
+    assert.ok(parsed.prompt.includes('<SHADOW:EMAIL_'));
+
+    const rehydrated = vault.rehydrate(parsed.prompt, 'support');
+    assert.ok(rehydrated.includes('bob.jones@example.com'));
+    vault.destroy();
+    console.log('  -> PASSED: Legacy completion request verified.');
+}
+
+// ---------------------------------------------------------------------------
+// Test 1d: Native JS Object Input to sanitize(obj)
+// ---------------------------------------------------------------------------
+console.log('\n[Test 1d] Native JS object input to sanitize(obj)...');
+{
+    const reqObj = {
+        model: 'gpt-4o',
+        messages: [
+            { role: 'user', content: 'Contact charlie@acme.com with root token AKIAIOSFODNN7EXAMPLE' }
+        ]
+    };
+    const { sanitizedJson, vault } = sanitize(reqObj, 1.0, ['crm']);
+    const parsed = JSON.parse(sanitizedJson);
+    assert.strictEqual(parsed.messages[0].content.includes('AKIAIOSFODNN7EXAMPLE'), false);
+    assert.ok(parsed.messages[0].content.includes('[REDACTED_CREDENTIAL]'));
+    assert.strictEqual(parsed.messages[0].content.includes('charlie@acme.com'), false);
+    assert.ok(parsed.messages[0].content.includes('<SHADOW:EMAIL_'));
+    vault.destroy();
+    console.log('  -> PASSED: Native JS object input to sanitize(obj) verified.');
+}
+
+// ---------------------------------------------------------------------------
+// Test 1e: Native JS Object Input to vault.rehydrate(obj, dest)
+// ---------------------------------------------------------------------------
+console.log('\n[Test 1e] Native JS object input to vault.rehydrate(obj, dest)...');
+{
+    const reqObj = {
+        messages: [
+            { role: 'user', content: 'Email dana@corp.net' }
+        ]
+    };
+    const { sanitizedJson, vault } = sanitize(reqObj, 1.0, ['mailer']);
+    const match = sanitizedJson.match(/<SHADOW:EMAIL_[a-f0-9]{6}>/);
+    assert.ok(match, 'Shadow token match');
+    const shadowEmail = match[0];
+
+    const inputObj = {
+        to: shadowEmail,
+        metadata: { sender: 'system', active: true, count: 42 }
+    };
+    const rehydratedObj = vault.rehydrate(inputObj, 'mailer');
+    assert.strictEqual(typeof rehydratedObj, 'object');
+    assert.strictEqual(rehydratedObj.to, 'dana@corp.net');
+    assert.strictEqual(rehydratedObj.metadata.active, true);
+    assert.strictEqual(rehydratedObj.metadata.count, 42);
+    vault.destroy();
+    console.log('  -> PASSED: Native JS object input to vault.rehydrate(obj, dest) verified.');
 }
 
 // ---------------------------------------------------------------------------
@@ -236,18 +322,17 @@ console.log('\n[Test 3] Standalone Tool Schema Minification...');
 }
 
 // ---------------------------------------------------------------------------
-// Test 4: Fail-Open Invariant & Malformed JSON Handling
+// Test 4: Non-matching Object Handling & Validation
 // ---------------------------------------------------------------------------
-console.log('\n[Test 4] Fail-Open Syntax & Error Handling...');
+console.log('\n[Test 4] Non-matching JSON & Input Validation...');
 {
-    // Malformed JSON should throw standard Error
-    assert.throws(
-        () => {
-            sanitize('{"messages": [{"role": "user", "content": "incomplete...}');
-        },
-        /malformed JSON/i,
-        'Malformed JSON input must throw JS Error'
-    );
+    // Non-chat JSON object falls back to raw text sanitization without throwing error
+    const customJson = JSON.stringify({ custom_field: "user alice@acme.com with key AKIAIOSFODNN7EXAMPLE" });
+    const { sanitizedJson, vault } = sanitize(customJson, 1.0, ['crm']);
+    assert.strictEqual(sanitizedJson.includes('AKIAIOSFODNN7EXAMPLE'), false);
+    assert.ok(sanitizedJson.includes('[REDACTED_CREDENTIAL]'));
+    assert.strictEqual(sanitizedJson.includes('alice@acme.com'), false);
+    vault.destroy();
 
     // Invalid rate outside 0.0..=1.0 throws RangeError
     assert.throws(
@@ -258,7 +343,7 @@ console.log('\n[Test 4] Fail-Open Syntax & Error Handling...');
         'Out-of-range rate must throw RangeError'
     );
 
-    console.log('  -> PASSED: Fail-open and input validation guards verified.');
+    console.log('  -> PASSED: Non-matching JSON fallback and validation verified.');
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +351,6 @@ console.log('\n[Test 4] Fail-Open Syntax & Error Handling...');
 // ---------------------------------------------------------------------------
 console.log('\n[Test 5] Nanosecond SLA Benchmark Gate (< 1,000,000 ns median)...');
 {
-    // Generate a 4KB synthetic chat payload
     const filler = 'The system architecture handles high throughput data synchronization across distributed edge nodes. '.repeat(40);
     const benchPayload = JSON.stringify({
         messages: [
@@ -305,8 +389,8 @@ console.log('\n[Test 5] Nanosecond SLA Benchmark Gate (< 1,000,000 ns median)...
     const p99Ns = timingsNs[Math.floor(iterations * 0.99)];
 
     console.log(`  Payload size: ${byteLen} bytes`);
-    console.log(`  Median latency: ${(medianNs / 1_000).toFixed(2)} µs (${medianNs} ns)`);
-    console.log(`  P99 latency:    ${(p99Ns / 1_000).toFixed(2)} µs (${p99Ns} ns)`);
+    console.log(`  Median latency: ${(medianNs / 1_000).toFixed(2)} us (${medianNs} ns)`);
+    console.log(`  P99 latency:    ${(p99Ns / 1_000).toFixed(2)} us (${p99Ns} ns)`);
 
     assert.ok(
         medianNs < 1_000_000,

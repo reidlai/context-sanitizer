@@ -134,8 +134,8 @@ impl WasmVaultHandle {
         }
     }
 
-    /// Explicitly frees the vault, immediately dropping all session salt and tokens (`NFR2`).
-    pub fn free(mut self) {
+    /// Explicitly destroys the vault, immediately dropping all session salt and tokens (`NFR2`).
+    pub fn destroy(mut self) {
         self.inner.take();
     }
 }
@@ -189,75 +189,74 @@ pub fn sanitize(
     let is_json = trimmed.starts_with('{');
 
     if is_json {
-        let parsed_val: serde_json::Value = match serde_json::from_str(&input_str) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(js_sys::Error::new(&format!("malformed JSON: {e}")).into());
+        if let Ok(parsed_val) = serde_json::from_str::<serde_json::Value>(&input_str) {
+            if let Ok(mut req) = serde_json::from_value::<ChatCompletionRequest>(parsed_val.clone())
+            {
+                check_messages_fast_breaker(&req.messages).map_err(map_core_err)?;
+                if target_rate < 1.0 {
+                    let _stats = req.sanitize_and_compress_in_place(&vault, target_rate);
+                } else {
+                    req.sanitize_in_place(&vault);
+                }
+                let clean_json =
+                    serde_json::to_string(&req).map_err(|e| js_sys::Error::new(&e.to_string()))?;
+
+                let result = js_sys::Object::new();
+                js_sys::Reflect::set(
+                    &result,
+                    &JsValue::from_str("sanitizedJson"),
+                    &JsValue::from_str(&clean_json),
+                )?;
+                js_sys::Reflect::set(
+                    &result,
+                    &JsValue::from_str("vault"),
+                    &JsValue::from(WasmVaultHandle { inner: Some(vault) }),
+                )?;
+                return Ok(result.into());
+            } else if let Ok(mut comp) = serde_json::from_value::<CompletionRequest>(parsed_val) {
+                check_completion_fast_breaker(&comp).map_err(map_core_err)?;
+                comp.sanitize_in_place(&vault);
+                let clean_json =
+                    serde_json::to_string(&comp).map_err(|e| js_sys::Error::new(&e.to_string()))?;
+
+                let result = js_sys::Object::new();
+                js_sys::Reflect::set(
+                    &result,
+                    &JsValue::from_str("sanitizedJson"),
+                    &JsValue::from_str(&clean_json),
+                )?;
+                js_sys::Reflect::set(
+                    &result,
+                    &JsValue::from_str("vault"),
+                    &JsValue::from(WasmVaultHandle { inner: Some(vault) }),
+                )?;
+                return Ok(result.into());
             }
-        };
-
-        if let Ok(mut req) = serde_json::from_value::<ChatCompletionRequest>(parsed_val.clone()) {
-            check_messages_fast_breaker(&req.messages).map_err(map_core_err)?;
-            let _stats = req.sanitize_and_compress_in_place(&vault, target_rate);
-            let clean_json =
-                serde_json::to_string(&req).map_err(|e| js_sys::Error::new(&e.to_string()))?;
-
-            let result = js_sys::Object::new();
-            js_sys::Reflect::set(
-                &result,
-                &JsValue::from_str("sanitizedJson"),
-                &JsValue::from_str(&clean_json),
-            )?;
-            js_sys::Reflect::set(
-                &result,
-                &JsValue::from_str("vault"),
-                &JsValue::from(WasmVaultHandle { inner: Some(vault) }),
-            )?;
-            Ok(result.into())
-        } else if let Ok(mut comp) = serde_json::from_value::<CompletionRequest>(parsed_val) {
-            check_completion_fast_breaker(&comp).map_err(map_core_err)?;
-            comp.sanitize_in_place(&vault);
-            let clean_json =
-                serde_json::to_string(&comp).map_err(|e| js_sys::Error::new(&e.to_string()))?;
-
-            let result = js_sys::Object::new();
-            js_sys::Reflect::set(
-                &result,
-                &JsValue::from_str("sanitizedJson"),
-                &JsValue::from_str(&clean_json),
-            )?;
-            js_sys::Reflect::set(
-                &result,
-                &JsValue::from_str("vault"),
-                &JsValue::from(WasmVaultHandle { inner: Some(vault) }),
-            )?;
-            Ok(result.into())
-        } else {
-            Err(js_sys::Error::new("JSON object is not a valid chat or completion request").into())
         }
-    } else {
-        scan_fast_breaker(&input_str).map_err(map_core_err)?;
-        let mut arena = SpanArena::new(&input_str);
-        run_tier1_guard(&mut arena, &vault);
-        let candidate = if target_rate < 1.0 {
-            let (compressed, _) = compress_text_with_arena(&mut arena, target_rate, None);
-            compressed
-        } else {
-            arena.materialize()
-        };
-        scan_fast_breaker(&candidate).map_err(map_core_err)?;
-
-        let result = js_sys::Object::new();
-        js_sys::Reflect::set(
-            &result,
-            &JsValue::from_str("sanitizedJson"),
-            &JsValue::from_str(&candidate),
-        )?;
-        js_sys::Reflect::set(
-            &result,
-            &JsValue::from_str("vault"),
-            &JsValue::from(WasmVaultHandle { inner: Some(vault) }),
-        )?;
-        Ok(result.into())
     }
+
+    // Fall back to raw text sanitization path
+    scan_fast_breaker(&input_str).map_err(map_core_err)?;
+    let mut arena = SpanArena::new(&input_str);
+    run_tier1_guard(&mut arena, &vault);
+    let candidate = if target_rate < 1.0 {
+        let (compressed, _) = compress_text_with_arena(&mut arena, target_rate, None);
+        compressed
+    } else {
+        arena.materialize()
+    };
+    scan_fast_breaker(&candidate).map_err(map_core_err)?;
+
+    let result = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &result,
+        &JsValue::from_str("sanitizedJson"),
+        &JsValue::from_str(&candidate),
+    )?;
+    js_sys::Reflect::set(
+        &result,
+        &JsValue::from_str("vault"),
+        &JsValue::from(WasmVaultHandle { inner: Some(vault) }),
+    )?;
+    Ok(result.into())
 }
