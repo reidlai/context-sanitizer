@@ -1,0 +1,119 @@
+name: DevSecOps CI Pipeline
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # Stage 1: Formatting & Linting
+  stage-1-fmt-and-lint:
+    name: "Stage 1: Formatting & Linting"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Run Clippy AST & lint checks
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # Stage 2: Source Code SAST & Secret Scanning
+  stage-2-sast-and-secrets:
+    name: "Stage 2: SAST & Secret Scanning"
+    runs-on: ubuntu-latest
+    needs: [stage-1-fmt-and-lint]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify #![forbid(unsafe_code)] and panic-free library attributes
+        run: |
+          grep -q '#!\[forbid(unsafe_code)\]' crates/context-sanitizer/src/lib.rs
+          grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer/src/lib.rs
+      - name: Run Semgrep SAST Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/rust
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  # Stage 3: Software Composition Analysis (SCA) & License Auditing
+  stage-3-sca-and-licenses:
+    name: "Stage 3: SCA & License Compliance"
+    runs-on: ubuntu-latest
+    needs: [stage-1-fmt-and-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run cargo-deny (advisories, bans, licenses, sources)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+      - name: Run cargo-audit (RustSec Advisory DB)
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 4: Pre-Build Unit Tests, Source Integration Tests & >= 85% Coverage Gate
+  stage-4-pre-build-tests-and-coverage:
+    name: "Stage 4: Unit + Integration Tests & Coverage (${{ matrix.os }})"
+    needs: [stage-2-sast-and-secrets, stage-3-sca-and-licenses]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run Unit Tests
+        run: cargo test --workspace --lib --bins
+      - name: Run In-Process Source Integration Tests
+        run: cargo test --workspace --test '*'
+      - name: Enforce >= 85% Line Coverage Gate
+        run: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
+
+  # Stage 5: Gated Release Artifact Build
+  stage-5-gated-release-build:
+    name: "Stage 5: Gated Release Build (${{ matrix.os }})"
+    needs: [stage-4-pre-build-tests-and-coverage]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Release Workspace Artifacts
+        run: cargo build --release --workspace --all-targets
+
+  # Stage 6: Post-Build Black-Box Artifact E2E Verification
+  stage-6-post-build-e2e-verification:
+    name: "Stage 6: Post-Build E2E & Benchmark Verification"
+    needs: [stage-5-gated-release-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Execute Release-Mode E2E Pipeline & Nanosecond SLA Verification
+        run: cargo test --release --workspace --test e2e_tier1_pipeline -- --nocapture

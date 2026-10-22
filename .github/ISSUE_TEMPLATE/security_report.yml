@@ -1,0 +1,39 @@
+name: 🛡️ Security Vulnerability / Leak Bypass
+description: Report a secret detector bypass or semantic firewall escape
+title: "[Security]: "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Important:** If this report involves an active exploit or high-risk vulnerability, please consider contacting the maintainer directly via GitHub Security Advisories or email before posting public reproduction steps.
+  - type: dropdown
+    id: threat_type
+    attributes:
+      label: Vulnerability Type
+      options:
+        - Secret Detector Bypass (Regex / Aho-Corasick miss)
+        - System One Guardrail Evasion / Jailbreak
+        - False Negative on Proprietary Data Detection
+        - Memory Safety / Buffer / PyO3 Crash
+        - Denial of Service (DoS via ReDoS or Token Bloat)
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Vulnerability Description
+      description: Explain the leak vector or bypass mechanism.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Proof of Concept / Payload
+      description: Provide the payload or test case (do NOT include real sensitive keys!).
+    validations:
+      required: true
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Fix or Regex / Rule Adjustment

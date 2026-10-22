@@ -1,0 +1,41 @@
+name: 💡 Feature Request
+description: Suggest a new capability, model backend, or agent integration
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for `context-sanitizer`? We'd love to hear it!
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - New PII / Secret Pattern
+        - New System One Model / Candle Backend
+        - New Agent Framework Integration (e.g., AutoGen, CrewAI, Semantic Kernel)
+        - Performance & Latency Optimization
+        - CLI / Proxy Feature
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem or Motivation
+      description: What problem would this feature solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution / API Design
+      description: How should this work? Any example Rust or Python APIs?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any other libraries, workarounds, or approaches you considered?

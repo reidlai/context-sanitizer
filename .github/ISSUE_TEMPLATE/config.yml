@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/reidlai/context-sanitizer/discussions
+    about: Ask questions, share ideas, and connect with other users.
+  - name: 🔒 GitHub Security Advisories
+    url: https://github.com/reidlai/context-sanitizer/security/advisories/new
+    about: Report critical vulnerabilities confidentially.

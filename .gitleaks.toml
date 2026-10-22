@@ -1,0 +1,28 @@
+title = "context-sanitizer Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist synthetic canary credentials in test fixtures, integration tests, benchmarks, and planning documentation"
+paths = [
+    '''(^|/)tests/''',
+    '''(^|/)benches/''',
+    '''_bmad-output/''',
+    '''_bmad/''',
+    '''README\.md$''',
+]
+stopwords = [
+    "AKIAIOSFODNN7EXAMPLE",
+    "AIzaSyDaGmWKa4JsXZ-0123456789abcdef",
+    "ghp_1234567890abcdefghijklmnopqrstuv",
+    "glpat-1234567890abcdefghij",
+    "xoxb-123456789012-123456789012-abcdef",
+    "00D1234567890abcde",
+    "abcd1234EFGH5678ijkl9012MNOP3456==",
+    "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9",
+    "super_secret_value_123456",
+    "super_secret_key_value_123",
+    "super_secret_assigned_value_98765",
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=",
+]

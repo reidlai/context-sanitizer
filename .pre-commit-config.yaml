@@ -1,0 +1,52 @@
+# Two-Speed Local DevSecOps Hooks (FR-14 / AD-6)
+# Stage 0a (`pre-commit`): Fast (< 3s) formatting, linting, secret scanning, and license checks.
+# Stage 0b (`pre-push`): Comprehensive SCA audit, unit tests, integration tests, and >= 85% coverage gate.
+default_install_hook_types: [pre-commit, pre-push]
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: "Stage 1: cargo fmt --all -- --check"
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: cargo-clippy
+        name: "Stage 1 & 2: cargo clippy --workspace --all-targets --all-features -- -D warnings"
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: gitleaks
+        name: "Stage 2: gitleaks secret scanning (.gitleaks.toml)"
+        entry: gitleaks protect --staged --redact --config .gitleaks.toml
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: cargo-deny
+        name: "Stage 3: cargo deny check licenses bans"
+        entry: cargo deny check licenses bans
+        language: system
+        files: ^(Cargo\.toml|Cargo\.lock|deny\.toml|crates/.*/Cargo\.toml)$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: cargo-audit-pre-push
+        name: "Stage 3 (pre-push): cargo audit"
+        entry: cargo audit
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: cargo-test-and-coverage-pre-push
+        name: "Stage 4 (pre-push): unit + integration tests & >= 85% line coverage gate"
+        entry: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-push]

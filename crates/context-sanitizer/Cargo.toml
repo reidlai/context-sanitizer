@@ -1,0 +1,19 @@
+[package]
+name = "context-sanitizer"
+description = "Pure-Rust System One semantic firewall, split-secret shadow vault, and syntax-safe token compressor for LLM and Agentic AI contexts."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aho-corasick.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+getrandom.workspace = true
