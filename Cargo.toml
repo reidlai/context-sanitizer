@@ -4,6 +4,7 @@ members = [
     "crates/context-sanitizer",
     "crates/context-sanitizer-cli",
     "crates/context-sanitizer-py",
+    "wasm",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ candle-core = "0.11.0"
 candle-transformers = "0.11.0"
 tokenizers = { version = "0.22.0", default-features = false }
 pyo3 = { version = "0.23.0", default-features = false }
+wasm-bindgen = "=0.2.95"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

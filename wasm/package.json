@@ -1,0 +1,39 @@
+{
+  "name": "@context-sanitizer/wasm",
+  "version": "0.1.0",
+  "description": "Universal WebAssembly / WASI client-side sanitization, shadow vaulting, and syntax-safe compression for LLMs",
+  "main": "pkg/wasm.js",
+  "types": "types/index.d.ts",
+  "files": [
+    "pkg",
+    "types"
+  ],
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "node": "./pkg/wasm.js",
+      "import": "./pkg/wasm.js",
+      "require": "./pkg/wasm.js",
+      "default": "./pkg/wasm.js"
+    }
+  },
+  "type": "module",
+  "keywords": [
+    "webassembly",
+    "wasm",
+    "wasi",
+    "llm",
+    "security",
+    "pii",
+    "redaction",
+    "compression",
+    "prompt-injection"
+  ],
+  "author": "Reid Lai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reidlai/context-sanitizer.git",
+    "directory": "wasm"
+  }
+}

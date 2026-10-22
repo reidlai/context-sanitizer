@@ -20,11 +20,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown, wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
       - name: Run Clippy AST & lint checks
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Run Clippy for Wasm targets
+        run: |
+          cargo clippy --target wasm32-unknown-unknown -p wasm -- -D warnings
+          cargo clippy --target wasm32-wasip1 -p wasm -- -D warnings
 
   # Stage 2: Source Code SAST & Secret Scanning
   stage-2-sast-and-secrets:
@@ -41,6 +46,8 @@ jobs:
           grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer/src/lib.rs
           grep -q '#!\[forbid(unsafe_code)\]' crates/context-sanitizer-py/src/lib.rs
           grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer-py/src/lib.rs
+          grep -q '#!\[forbid(unsafe_code)\]' wasm/src/lib.rs
+          grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' wasm/src/lib.rs
       - name: Run Semgrep SAST Scan
         uses: returntocorp/semgrep-action@v1
         with:
@@ -82,6 +89,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
+          targets: wasm32-unknown-unknown, wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -91,6 +99,10 @@ jobs:
         run: cargo test --workspace --test '*'
       - name: Run Tier 3 ML Unit & Integration Tests
         run: cargo test --workspace --all-targets --features ml
+      - name: Check Wasm and WASI Compilation
+        run: |
+          cargo check --target wasm32-unknown-unknown -p wasm
+          cargo check --target wasm32-wasip1 -p wasm
       - name: Enforce >= 85% Line Coverage Gate
         run: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
       - name: Setup uv for Python Gates
@@ -122,9 +134,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Build Release Workspace Artifacts
         run: cargo build --release --workspace --all-targets
+      - name: Build Wasm Release Artifacts
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p wasm
+          cargo build --release --target wasm32-wasip1 -p wasm
       - name: Setup uv for Python Wheel Build
         uses: astral-sh/setup-uv@v5
       - name: Build Python Release Wheel
@@ -142,6 +160,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Build Release Binaries
         run: cargo build --release --workspace --all-targets
@@ -173,3 +193,16 @@ jobs:
           else
             clean_env/bin/python -m pytest crates/context-sanitizer-py/tests/e2e_python_wheel.py -v
           fi
+      - name: Setup Node.js for Wasm Verification
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.95
+      - name: Build and Verify WebAssembly Black-Box E2E Suite
+        shell: bash
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p wasm
+          wasm-bindgen target/wasm32-unknown-unknown/release/wasm.wasm --out-dir wasm/pkg --target nodejs
+          echo '{"type": "commonjs"}' > wasm/pkg/package.json
+          node wasm/tests/e2e_wasm_client.mjs

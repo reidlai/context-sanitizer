@@ -10,6 +10,7 @@ pub mod schema;
 pub mod shannon;
 pub mod submodular;
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -59,11 +60,17 @@ pub fn compress_text_with_arena(
     target_rate: f32,
     tail_query: Option<&str>,
 ) -> (String, CompressionStats) {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     let start = Instant::now();
     let original_bytes = arena.source().len();
     let original_tokens = original_bytes.div_ceil(4);
 
     if original_bytes == 0 {
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        let elapsed_ns = start.elapsed().as_nanos() as u64;
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        let elapsed_ns = 0u64;
+
         return (
             String::new(),
             CompressionStats {
@@ -75,7 +82,7 @@ pub fn compress_text_with_arena(
                 syntax_locked_count: 0,
                 pruned_spans_count: 0,
                 fail_open_triggered: false,
-                elapsed_ns: start.elapsed().as_nanos() as u64,
+                elapsed_ns,
             },
         );
     }
@@ -101,7 +108,11 @@ pub fn compress_text_with_arena(
         (arena.materialize_fail_open(), true)
     };
 
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     let elapsed_ns = start.elapsed().as_nanos() as u64;
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    let elapsed_ns = 0u64;
+
     let compressed_bytes = final_text.len();
     let compressed_tokens = compressed_bytes.div_ceil(4);
     let reduction_ratio = if original_tokens > 0 && compressed_tokens < original_tokens {
