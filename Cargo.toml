@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/context-sanitizer",
     "crates/context-sanitizer-cli",
+    "crates/context-sanitizer-py",
 ]
 
 [workspace.package]
@@ -24,6 +25,7 @@ clap = { version = "4.5.20", features = ["derive"] }
 candle-core = "0.11.0"
 candle-transformers = "0.11.0"
 tokenizers = { version = "0.22.0", default-features = false }
+pyo3 = { version = "0.23.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -9,6 +9,7 @@ __pycache__/
 *.so
 *.dylib
 *.pyd
+*.pdb
 .venv/
 venv/
 env/
@@ -16,6 +17,9 @@ dist/
 build/
 *.egg-info/
 .eggs/
+.coverage
+.coverage.*
+htmlcov/
 
 # Environments & Secrets
 .env
