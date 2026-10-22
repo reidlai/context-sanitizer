@@ -14,7 +14,7 @@ use context_sanitizer::arena::SpanArena;
 use context_sanitizer::compress::compress_text_with_arena;
 use context_sanitizer::guard::run_tier1_guard;
 use context_sanitizer::wire::sanitize_and_compress_chat_completions_json;
-use context_sanitizer::{SanitizerError, ThreatGatekeeper, VaultHandle};
+use context_sanitizer::{SanitizerError, ThreatGatekeeper, ThreatVerdict, VaultHandle};
 use xray::XRayReport;
 
 #[derive(Parser, Debug)]
@@ -163,16 +163,26 @@ fn analyze_payload(raw: &str, rate: f32, threat_threshold: f32) -> (String, XRay
     }
 
     // 2. Evaluate threat
+    let t3_start = Instant::now();
     let gk_eval = gatekeeper.evaluate_threat(raw);
+    let t3_elapsed = t3_start.elapsed().as_nanos() as u64;
+
     let (is_blocked, threat_verdict, max_threat_score, evaluated_windows, tier3_latency_ns) =
         match gk_eval {
-            Ok(res) => (
-                false,
-                "PASS".to_owned(),
-                res.max_threat_score,
-                res.evaluated_windows,
-                res.latency_ns,
-            ),
+            Ok(res) => {
+                let verdict_str = match res.verdict {
+                    ThreatVerdict::Pass => "PASS".to_owned(),
+                    ThreatVerdict::Fallback { .. } => "FALLBACK".to_owned(),
+                    ThreatVerdict::Blocked { .. } => "BLOCKED".to_owned(),
+                };
+                (
+                    false,
+                    verdict_str,
+                    res.max_threat_score,
+                    res.evaluated_windows,
+                    res.latency_ns,
+                )
+            }
             Err(SanitizerError::ThreatBlocked {
                 score_bps,
                 reason: _,
@@ -180,10 +190,10 @@ fn analyze_payload(raw: &str, rate: f32, threat_threshold: f32) -> (String, XRay
                 true,
                 "BLOCKED".to_owned(),
                 (score_bps as f32) / 10_000.0,
-                0,
-                0,
+                1,
+                t3_elapsed,
             ),
-            Err(_) => (false, "PASS".to_owned(), 0.0, 0, 0),
+            Err(_) => (false, "FALLBACK".to_owned(), 0.0, 0, t3_elapsed),
         };
 
     if is_blocked {

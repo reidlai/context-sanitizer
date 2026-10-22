@@ -80,6 +80,13 @@ impl CandleGuard {
             return Ok(0.0);
         }
 
+        // Bound tokens to at most 512 to prevent subword expansion from overflowing position embeddings
+        let token_ids = if token_ids.len() > 512 {
+            &token_ids[..512]
+        } else {
+            token_ids
+        };
+
         // 1. Look up embeddings tensor
         let embeddings = self.tensors.get("embeddings.weight").ok_or_else(|| {
             SanitizerError::ModelLoadError("Missing 'embeddings.weight' tensor".to_owned())

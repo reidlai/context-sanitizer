@@ -201,22 +201,10 @@ impl ThreatGatekeeper {
             let guard_start = Instant::now();
 
             for window in windows {
+                evaluated_windows += 1;
                 let eval_res = guard.evaluate_threat(window.text);
                 let elapsed_ns = guard_start.elapsed().as_nanos() as u64;
-                if elapsed_ns >= self.guard_timeout_ns {
-                    eprintln!(
-                        "[WARN][context-sanitizer::ml] Guard watchdog timeout ({elapsed_ns} ns >= {} ns ceiling); falling back gracefully",
-                        self.guard_timeout_ns
-                    );
-                    fallback_triggered = true;
-                    fallback_reason = Some(format!(
-                        "guard timeout ({elapsed_ns} ns >= {} ns ceiling)",
-                        self.guard_timeout_ns
-                    ));
-                    break;
-                }
 
-                evaluated_windows += 1;
                 match eval_res {
                     Ok(score) => {
                         max_threat_score = max_threat_score.max(score);
@@ -239,6 +227,19 @@ impl ThreatGatekeeper {
                         fallback_reason = Some(err.to_string());
                         break;
                     }
+                }
+
+                if elapsed_ns >= self.guard_timeout_ns {
+                    eprintln!(
+                        "[WARN][context-sanitizer::ml] Guard watchdog timeout ({elapsed_ns} ns >= {} ns ceiling); falling back gracefully",
+                        self.guard_timeout_ns
+                    );
+                    fallback_triggered = true;
+                    fallback_reason = Some(format!(
+                        "guard timeout ({elapsed_ns} ns >= {} ns ceiling)",
+                        self.guard_timeout_ns
+                    ));
+                    break;
                 }
             }
         }
@@ -305,22 +306,10 @@ impl ThreatGatekeeper {
             let guard_start = Instant::now();
 
             for window in windows {
+                evaluated_windows += 1;
                 let eval_res = guard.evaluate_threat(window.text);
                 let elapsed_ns = guard_start.elapsed().as_nanos() as u64;
-                if elapsed_ns >= self.guard_timeout_ns {
-                    eprintln!(
-                        "[WARN][context-sanitizer::ml] Guard watchdog timeout ({elapsed_ns} ns >= {} ns ceiling); falling back to Tier 2 statistical compression",
-                        self.guard_timeout_ns
-                    );
-                    fallback_triggered = true;
-                    fallback_reason = Some(format!(
-                        "guard timeout ({elapsed_ns} ns >= {} ns ceiling)",
-                        self.guard_timeout_ns
-                    ));
-                    break;
-                }
 
-                evaluated_windows += 1;
                 match eval_res {
                     Ok(score) => {
                         max_threat_score = max_threat_score.max(score);
@@ -343,6 +332,19 @@ impl ThreatGatekeeper {
                         fallback_reason = Some(err.to_string());
                         break;
                     }
+                }
+
+                if elapsed_ns >= self.guard_timeout_ns {
+                    eprintln!(
+                        "[WARN][context-sanitizer::ml] Guard watchdog timeout ({elapsed_ns} ns >= {} ns ceiling); falling back to Tier 2 statistical compression",
+                        self.guard_timeout_ns
+                    );
+                    fallback_triggered = true;
+                    fallback_reason = Some(format!(
+                        "guard timeout ({elapsed_ns} ns >= {} ns ceiling)",
+                        self.guard_timeout_ns
+                    ));
+                    break;
                 }
             }
         }
