@@ -29,9 +29,8 @@ class LangChainSanitizer:
         sanitized, vault = cs.sanitize(
             messages_or_prompt, rate=self.rate, whitelist=self.whitelist
         )
-        if len(vault) > 0 or self.last_vault is None:
-            self.last_vault = vault
-        return sanitized, self.last_vault
+        self.last_vault = vault
+        return sanitized, vault
 
     def rehydrate_tool_calls(
         self,
@@ -94,7 +93,7 @@ class LangChainModelWrapper:
             response.tool_calls = self._sanitizer.rehydrate_tool_calls(
                 response.tool_calls, vault
             )
-        elif isinstance(response, dict) and "tool_calls" in response:
+        elif isinstance(response, dict) and response.get("tool_calls"):
             response["tool_calls"] = self._sanitizer.rehydrate_tool_calls(
                 response["tool_calls"], vault
             )
@@ -118,7 +117,7 @@ class LangChainModelWrapper:
             response.tool_calls = self._sanitizer.rehydrate_tool_calls(
                 response.tool_calls, vault
             )
-        elif isinstance(response, dict) and "tool_calls" in response:
+        elif isinstance(response, dict) and response.get("tool_calls"):
             response["tool_calls"] = self._sanitizer.rehydrate_tool_calls(
                 response["tool_calls"], vault
             )

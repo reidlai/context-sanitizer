@@ -48,7 +48,7 @@ fn map_core_err(py: Python<'_>, err: CoreSanitizerError) -> PyErr {
 }
 
 /// Opaque memory-safe handle wrapping the cryptographic session vault (`AD-3`, `FR11`, `NFR5`).
-#[pyclass(unsendable)]
+#[pyclass]
 pub struct VaultHandle {
     inner: Arc<CoreVaultHandle>,
 }
@@ -190,6 +190,11 @@ pub fn sanitize(
     let destinations = whitelist.unwrap_or_default();
     let vault = CoreVaultHandle::with_destinations(destinations);
     let target_rate = rate.unwrap_or(1.0);
+    if !(0.0..=1.0).contains(&target_rate) || target_rate.is_nan() {
+        return Err(PyValueError::new_err(
+            "rate must be a valid float between 0.0 and 1.0",
+        ));
+    }
 
     // 1. Raw string input
     if let Ok(py_str) = input.extract::<String>() {

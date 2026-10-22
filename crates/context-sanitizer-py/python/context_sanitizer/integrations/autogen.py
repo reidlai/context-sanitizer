@@ -60,13 +60,32 @@ class AutoGenSanitizer:
 
             reply = orig_fn(*args, messages=active_messages, sender=sender, **kwargs)
 
-            if isinstance(reply, dict) and "function_call" in reply and self.last_vault:
-                fn_call = reply["function_call"]
-                fn_name = fn_call.get("name", "")
-                if fn_name in self.whitelist and "arguments" in fn_call:
-                    fn_call["arguments"] = self.last_vault.rehydrate(
-                        fn_call["arguments"], destination=fn_name
-                    )
+            if isinstance(reply, dict) and self.last_vault:
+                fn_call = reply.get("function_call")
+                if isinstance(fn_call, dict):
+                    fn_name = fn_call.get("name", "")
+                    if fn_name in self.whitelist and "arguments" in fn_call:
+                        fn_call["arguments"] = self.last_vault.rehydrate(
+                            fn_call["arguments"], destination=fn_name
+                        )
+
+                tool_calls = reply.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    for tc in tool_calls:
+                        if isinstance(tc, dict):
+                            fn_obj = tc.get("function")
+                            if isinstance(fn_obj, dict):
+                                tc_name = fn_obj.get("name", "")
+                                if tc_name in self.whitelist and "arguments" in fn_obj:
+                                    fn_obj["arguments"] = self.last_vault.rehydrate(
+                                        fn_obj["arguments"], destination=tc_name
+                                    )
+                            else:
+                                tc_name = tc.get("name", "")
+                                if tc_name in self.whitelist and "args" in tc:
+                                    tc["args"] = self.last_vault.rehydrate(
+                                        tc["args"], destination=tc_name
+                                    )
 
             return reply
 

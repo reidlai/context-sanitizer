@@ -59,6 +59,33 @@ def test_sanitize_messages_list_and_dict() -> None:
     assert "<SHADOW:EMAIL_" in clean_dict["messages"][1]["content"]
 
 
+def test_chat_completion_request_wire_json_string() -> None:
+    raw_wire_json = json.dumps(
+        {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": "My email is grace@corp.com and key is AKIAIOSFODNN7EXAMPLE",
+                },
+            ],
+            "temperature": 0.2,
+        }
+    )
+    clean_json, vault = cs.sanitize(raw_wire_json, rate=1.0, whitelist=["crm"])
+    assert isinstance(clean_json, str)
+    assert "[REDACTED_CREDENTIAL]" in clean_json
+    assert "AKIAIOSFODNN7EXAMPLE" not in clean_json
+    assert "<SHADOW:EMAIL_" in clean_json
+
+    parsed = json.loads(clean_json)
+    assert parsed["model"] == "gpt-4o"
+    assert parsed["temperature"] == 0.2
+    assert "<SHADOW:EMAIL_" in parsed["messages"][1]["content"]
+    assert len(vault) >= 1
+
+
 def test_vault_security_invariants_and_pickle_rejection() -> None:
     _, vault = cs.sanitize("Contact user@acme.com", whitelist=["crm"])
 
@@ -77,6 +104,33 @@ def test_vault_security_invariants_and_pickle_rejection() -> None:
     # JSON serialization must fail with TypeError
     with pytest.raises(TypeError):
         json.dumps(vault)
+
+
+def test_vault_pii() -> None:
+    _, vault = cs.sanitize("Init", whitelist=["crm"])
+    token_email = vault.vault_pii("email", "dan@example.com")
+    assert token_email.startswith("<SHADOW:EMAIL_")
+    token_ip = vault.vault_pii("ip", "10.0.0.1")
+    assert token_ip.startswith("<SHADOW:IP_")
+    token_phone = vault.vault_pii("phone", "+1-555-0199")
+    assert token_phone.startswith("<SHADOW:PHONE_")
+
+    # Invalid PII kind raises ValueError
+    with pytest.raises(ValueError, match="unsupported PII kind"):
+        vault.vault_pii("ssn", "000-00-0000")
+
+    # Rehydrate vaulted entities
+    rehydrated = vault.rehydrate(f"{token_email} at {token_ip}", destination="crm")
+    assert rehydrated == "dan@example.com at 10.0.0.1"
+
+
+def test_rate_validation() -> None:
+    with pytest.raises(ValueError, match="rate must be a valid float"):
+        cs.sanitize("Hello", rate=-0.1)
+    with pytest.raises(ValueError, match="rate must be a valid float"):
+        cs.sanitize("Hello", rate=1.5)
+    with pytest.raises(ValueError, match="rate must be a valid float"):
+        cs.sanitize("Hello", rate=float("nan"))
 
 
 def test_authorized_and_unauthorized_rehydration() -> None:
@@ -141,14 +195,14 @@ def test_gil_release_multithreaded_concurrency() -> None:
 def test_nanosecond_ffi_latency_under_50_000_ns() -> None:
     payload = "Short benchmark payload for nanosecond FFI overhead verification."
     # Warmup
-    for _ in range(50):
+    for _ in range(100):
         cs.sanitize(payload)
 
-    iters = 1000
+    iters = 2000
     start = time.perf_counter_ns()
     for _ in range(iters):
         cs.sanitize(payload)
     elapsed_total_ns = time.perf_counter_ns() - start
     avg_ns = elapsed_total_ns / iters
 
-    assert avg_ns < 500_000, f"Average latency {avg_ns} ns exceeded threshold"
+    assert avg_ns < 50_000, f"Average latency {avg_ns} ns exceeded 50,000 ns SLA"

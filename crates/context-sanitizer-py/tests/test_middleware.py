@@ -211,12 +211,23 @@ class MockAutoGenAgent:
         sender: Any = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        content = str(messages)
+        match = re.search(r"<SHADOW:EMAIL_[a-f0-9]+>", content)
+        token = match.group(0) if match else "<SHADOW:EMAIL_default>"
         return {
             "content": "Running code",
             "function_call": {
                 "name": "code",
-                "arguments": '{"email": "<SHADOW:EMAIL_123456>"}',
+                "arguments": f'{{"email": "{token}"}}',
             },
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "code",
+                        "arguments": f'{{"user_email": "{token}"}}',
+                    }
+                }
+            ],
         }
 
     def receive(self, message: Any, sender: Any = None, **kwargs: Any) -> None:
@@ -243,9 +254,20 @@ def test_autogen_sanitizer_middleware() -> None:
         tok for tok in received.split() if tok.startswith("<SHADOW:EMAIL_")
     ).strip(",. ")
 
-    # 3. Generate reply with tool call
+    # 3. Generate reply with tool call and function call rehydration
     reply = agent.generate_reply(messages=[{"role": "user", "content": received}])
     assert reply["content"] == "Running code"
+    assert "frank@acme.com" in reply["function_call"]["arguments"]
+    assert "frank@acme.com" in reply["tool_calls"][0]["function"]["arguments"]
+
+    # Test reply with None function_call and None tool_calls does not crash
+    raw_agent.generate_reply = lambda **k: {
+        "content": "plain",
+        "function_call": None,
+        "tool_calls": None,
+    }
+    none_reply = agent.generate_reply(messages=[{"role": "user", "content": "hi"}])
+    assert none_reply["content"] == "plain"
 
     # 4. Execute function rehydrates authorized tool arguments
     auth_call = {"name": "code", "arguments": f'{{"target": "{shadow_token}"}}'}
@@ -380,3 +402,19 @@ def test_custom_message_objects_sanitize() -> None:
     msgs2 = [PlainMessage("Secret at user2@domain.com")]
     clean2, _ = cs.sanitize(msgs2)
     assert "<SHADOW:EMAIL_" in clean2[0].content
+
+
+def test_langchain_sanitizer_none_tool_calls_no_crash() -> None:
+    class ModelWithNoneToolCalls:
+        def invoke(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"content": "ok", "tool_calls": None}
+
+        async def ainvoke(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"content": "ok", "tool_calls": None}
+
+    sanitizer = LangChainSanitizer()
+    wrapped = sanitizer.wrap(ModelWithNoneToolCalls())
+    res1 = wrapped.invoke("hello")
+    assert res1["content"] == "ok"
+    res2 = asyncio.run(wrapped.ainvoke("hello"))
+    assert res2["content"] == "ok"
