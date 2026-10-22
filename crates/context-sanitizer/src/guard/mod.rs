@@ -10,6 +10,13 @@ pub use crate::guard::vault::{PiiKind, VaultHandle};
 /// Canonical irreversible redaction token for root credentials (`FR-1`, `Consistency Conventions`).
 pub const REDACTED_CREDENTIAL_MASK: &str = "[REDACTED_CREDENTIAL]";
 
+/// Validates whether a byte is a valid local-part email character (`a-z`, `0-9`, `.`, `_`, `%`, `+`, `-`).
+#[inline]
+#[must_use]
+pub const fn is_email_local_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'%' | b'+' | b'-')
+}
+
 /// Executes all Tier 1 (`L0`) read-only scanners over `arena` (vendor credentials, `*_KEY`/`*_SECRET`
 /// assignments, standalone high-entropy secrets, and operational PII shadow vaulting).
 pub fn run_tier1_guard(arena: &mut SpanArena<'_>, vault: &VaultHandle) {

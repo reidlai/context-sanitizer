@@ -1,0 +1,23 @@
+[package]
+name = "context-sanitizer-cli"
+description = "Context X-Ray diagnostic and benchmarking CLI for the context-sanitizer framework."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "context-sanitizer"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+context-sanitizer = { path = "../context-sanitizer", version = "0.1.0" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

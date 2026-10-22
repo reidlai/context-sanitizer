@@ -3,5 +3,8 @@
 pub mod chat;
 pub mod completion;
 
-pub use chat::{sanitize_chat_completions_json, ChatCompletionRequest, ChatContent, ChatMessage};
+pub use chat::{
+    sanitize_and_compress_chat_completions_json, sanitize_chat_completions_json,
+    ChatCompletionRequest, ChatContent, ChatMessage,
+};
 pub use completion::{sanitize_completions_json, CompletionPrompt, CompletionRequest};

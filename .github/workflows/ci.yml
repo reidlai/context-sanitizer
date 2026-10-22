@@ -108,12 +108,28 @@ jobs:
 
   # Stage 6: Post-Build Black-Box Artifact E2E Verification
   stage-6-post-build-e2e-verification:
-    name: "Stage 6: Post-Build E2E & Benchmark Verification"
+    name: "Stage 6: Post-Build E2E & Benchmark Verification (${{ matrix.os }})"
     needs: [stage-5-gated-release-build]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Execute Release-Mode E2E Pipeline & Nanosecond SLA Verification
+      - name: Build Release Binaries
+        run: cargo build --release --workspace --all-targets
+      - name: Execute Release-Mode Tier 1 E2E Pipeline
         run: cargo test --release --workspace --test e2e_tier1_pipeline -- --nocapture
+      - name: Execute Release-Mode Tier 2 Compression & SLA Verification
+        run: cargo test --release --workspace --test e2e_tier2_compression -- --nocapture
+      - name: Execute Black-Box CLI Diagnostics and Benchmarks
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./target/release/context-sanitizer.exe xray --bench
+          else
+            ./target/release/context-sanitizer xray --bench
+          fi
