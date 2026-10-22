@@ -87,6 +87,8 @@ jobs:
         run: cargo test --workspace --lib --bins
       - name: Run In-Process Source Integration Tests
         run: cargo test --workspace --test '*'
+      - name: Run Tier 3 ML Unit & Integration Tests
+        run: cargo test --workspace --all-targets --features ml
       - name: Enforce >= 85% Line Coverage Gate
         run: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
 
@@ -125,6 +127,8 @@ jobs:
         run: cargo test --release --workspace --test e2e_tier1_pipeline -- --nocapture
       - name: Execute Release-Mode Tier 2 Compression & SLA Verification
         run: cargo test --release --workspace --test e2e_tier2_compression -- --nocapture
+      - name: Execute Release-Mode Tier 3 ML Gatekeeper & SLA Verification
+        run: cargo test --release --workspace --test e2e_tier3_ml_gatekeeper --features ml -- --nocapture
       - name: Execute Black-Box CLI Diagnostics and Benchmarks
         shell: bash
         run: |

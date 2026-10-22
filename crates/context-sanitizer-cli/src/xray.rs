@@ -18,8 +18,15 @@ pub struct XRayReport {
     pub tier1_ns_per_byte: f64,
     pub tier2_latency_ns: u64,
     pub tier2_ns_per_byte: f64,
+    pub tier3_latency_ns: u64,
+    pub tier3_ns_per_byte: f64,
     pub total_latency_ns: u64,
     pub total_ns_per_byte: f64,
+    pub evaluated_windows: usize,
+    pub max_threat_score: f32,
+    pub threat_threshold: f32,
+    pub threat_verdict: String,
+    pub is_blocked: bool,
     pub redacted_credentials: usize,
     pub vaulted_pii_tokens: usize,
     pub syntax_locks_preserved: bool,
@@ -39,12 +46,20 @@ impl XRayReport {
         compressed_tokens: usize,
         tier1_latency_ns: u64,
         tier2_latency_ns: u64,
+        tier3_latency_ns: u64,
+        evaluated_windows: usize,
+        max_threat_score: f32,
+        threat_threshold: f32,
+        threat_verdict: String,
+        is_blocked: bool,
         redacted_credentials: usize,
         vaulted_pii_tokens: usize,
         syntax_locks_preserved: bool,
         fail_open_triggered: bool,
     ) -> Self {
-        let total_latency_ns = tier1_latency_ns.saturating_add(tier2_latency_ns);
+        let total_latency_ns = tier1_latency_ns
+            .saturating_add(tier2_latency_ns)
+            .saturating_add(tier3_latency_ns);
         let tier1_ns_per_byte = if input_bytes > 0 {
             (tier1_latency_ns as f64) / (input_bytes as f64)
         } else {
@@ -52,6 +67,11 @@ impl XRayReport {
         };
         let tier2_ns_per_byte = if input_bytes > 0 {
             (tier2_latency_ns as f64) / (input_bytes as f64)
+        } else {
+            0.0
+        };
+        let tier3_ns_per_byte = if input_bytes > 0 {
+            (tier3_latency_ns as f64) / (input_bytes as f64)
         } else {
             0.0
         };
@@ -81,8 +101,15 @@ impl XRayReport {
             tier1_ns_per_byte,
             tier2_latency_ns,
             tier2_ns_per_byte,
+            tier3_latency_ns,
+            tier3_ns_per_byte,
             total_latency_ns,
             total_ns_per_byte,
+            evaluated_windows,
+            max_threat_score,
+            threat_threshold,
+            threat_verdict,
+            is_blocked,
             redacted_credentials,
             vaulted_pii_tokens,
             syntax_locks_preserved,
@@ -115,7 +142,13 @@ impl XRayReport {
                 " Latency Breakdown:\n",
                 "   Tier 1 (Guard + Vault) : {:>10} ns   ({:>6.1} ns/byte)\n",
                 "   Tier 2 (Compression)   : {:>10} ns   ({:>6.1} ns/byte)\n",
+                "   Tier 3 (ML Gatekeeper) : {:>10} ns   ({:>6.1} ns/byte)\n",
                 "   Total Pipeline Elapsed : {:>10} ns   ({:>6.1} ns/byte)\n",
+                "--------------------------------------------------------------------------------\n",
+                " Threat Gatekeeper (Tier 3):\n",
+                "   Gatekeeper Verdict     : {:<10}\n",
+                "   Max Threat Score       : {:>10.4}   (threshold: {:.2})\n",
+                "   Evaluated Windows      : {:>10}\n",
                 "--------------------------------------------------------------------------------\n",
                 " Token Metrics:\n",
                 "   Original Tokens        : {:>10}\n",
@@ -136,8 +169,14 @@ impl XRayReport {
             self.tier1_ns_per_byte,
             self.tier2_latency_ns,
             self.tier2_ns_per_byte,
+            self.tier3_latency_ns,
+            self.tier3_ns_per_byte,
             self.total_latency_ns,
             self.total_ns_per_byte,
+            self.threat_verdict,
+            self.max_threat_score,
+            self.threat_threshold,
+            self.evaluated_windows,
             self.original_tokens,
             self.compressed_tokens,
             self.token_reduction_pct,

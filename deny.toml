@@ -5,6 +5,13 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+unmaintained = "workspace"
+ignore = [
+    # Transitive dependency of candle-core 0.11.0: Unix extraction permissions in zip crate
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+]
 
 [licenses]
 version = 2

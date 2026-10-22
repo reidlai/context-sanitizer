@@ -18,3 +18,10 @@ serde_json.workspace = true
 thiserror.workspace = true
 getrandom.workspace = true
 logos.workspace = true
+candle-core = { workspace = true, optional = true }
+candle-transformers = { workspace = true, optional = true }
+tokenizers = { workspace = true, optional = true }
+
+[features]
+default = []
+ml = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers"]

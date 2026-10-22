@@ -31,6 +31,14 @@ pub enum SyntaxToken {
     #[regex(r#""([^"\\]|\\.)*"\s*:"#)]
     JsonKeyWithColon,
 
+    /// Redacted credential token (`[REDACTED_CREDENTIAL]`).
+    #[regex(r"\[REDACTED_CREDENTIAL\]")]
+    RedactedCredential,
+
+    /// PII shadow vault token (`<SHADOW:...>`).
+    #[regex(r"<SHADOW:[a-zA-Z0-9_]+>")]
+    ShadowToken,
+
     /// JSON structural delimiters: `{`, `}`, `[`, `]`, `,`, `:`.
     #[regex(r"[\{\}\[\],:]")]
     JsonDelimiter,

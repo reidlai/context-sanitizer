@@ -9,7 +9,7 @@ use context_sanitizer::compress::compress_text;
 pub const MAX_P99_LATENCY_SLA_NS: u64 = 1_500_000;
 
 #[cfg(debug_assertions)]
-pub const MAX_P99_LATENCY_SLA_NS: u64 = 30_000_000;
+pub const MAX_P99_LATENCY_SLA_NS: u64 = 60_000_000;
 
 /// Standard MeetingBank conversation corpus sample.
 pub const MEETINGBANK_SAMPLE: &str = concat!(
