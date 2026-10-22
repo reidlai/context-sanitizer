@@ -1,5 +1,7 @@
 # context-sanitizer
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-reidlai-orange?logo=buy-me-a-coffee)](https://www.buymeacoffee.com/reidlai)
+
 **context-sanitizer** is a blazingly fast, local Rust proxy and library that intercepts LLM API traffic to act as a **System One semantic firewall** and token compressor.
 
 Built for modern Agentic AI and Copilot workflows, it solves the "context rot" problem by trimming stale history and massive tool schemas, while ensuring your AWS keys, GitHub tokens, and proprietary semantic data never leak to third-party LLM providers. It offers a pure Rust core with seamless Python bindings via `PyO3`.
@@ -492,6 +494,12 @@ Encountered a bug, security vulnerability, or have an idea for a new feature? Pl
 * 🐛 **[Bug Report](https://github.com/reidlai/context-sanitizer/issues/new?template=bug_report.yml):** For reporting unexpected panics, compression defects, or runtime crashes.
 * 💡 **[Feature Request](https://github.com/reidlai/context-sanitizer/issues/new?template=feature_request.yml):** For proposing new regex detectors, System One encoder models, or agent framework integrations.
 * 🛡️ **[Security Vulnerability](https://github.com/reidlai/context-sanitizer/issues/new?template=security_report.yml):** For reporting secret detector bypasses, false negatives in proprietary data detection, or guardrail escapes.
+
+## Support & Sponsorship
+
+If you find context-sanitizer valuable for securing your LLM pipelines or saving context tokens, consider supporting ongoing development:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-reidlai-orange?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/reidlai)
 
 ## License
 
