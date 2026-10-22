@@ -1,0 +1,319 @@
+name: DevSecOps Release & Provenance Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (e.g. v0.1.0)'
+        required: false
+        default: 'v0.1.0'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  # =========================================================================
+  # Stage 1: Formatting & Linting
+  # =========================================================================
+  stage-1-fmt-and-lint:
+    name: "Stage 1: Formatting & Linting"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Run Clippy AST & lint checks
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Run Clippy for Wasm targets
+        run: |
+          cargo clippy --target wasm32-unknown-unknown -p wasm -- -D warnings
+          cargo clippy --target wasm32-wasip1 -p wasm -- -D warnings
+      - name: Setup uv for Python Lints
+        uses: astral-sh/setup-uv@v5
+      - name: Run Ruff Lint and Format Checks
+        run: |
+          uv run --with ruff ruff check crates/context-sanitizer-py
+          uv run --with ruff ruff format --check crates/context-sanitizer-py
+
+  # =========================================================================
+  # Stage 2: Source Code SAST & Secret Scanning
+  # =========================================================================
+  stage-2-sast-and-secrets:
+    name: "Stage 2: SAST & Secret Scanning"
+    runs-on: ubuntu-latest
+    needs: [stage-1-fmt-and-lint]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify #![forbid(unsafe_code)] across crates
+        run: |
+          grep -q '#!\[forbid(unsafe_code)\]' crates/context-sanitizer/src/lib.rs
+          grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer/src/lib.rs
+          grep -q '#!\[forbid(unsafe_code)\]' crates/context-sanitizer-py/src/lib.rs
+          grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer-py/src/lib.rs
+          grep -q '#!\[forbid(unsafe_code)\]' wasm/src/lib.rs
+          grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' wasm/src/lib.rs
+      - name: Run Semgrep SAST Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/rust
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  # =========================================================================
+  # Stage 3: Software Composition Analysis (SCA) & License Auditing
+  # =========================================================================
+  stage-3-sca-and-licenses:
+    name: "Stage 3: SCA & License Compliance"
+    runs-on: ubuntu-latest
+    needs: [stage-1-fmt-and-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run cargo-deny (advisories, bans, licenses, sources)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+      - name: Run cargo-audit (RustSec Advisory DB)
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # Stage 4: Pre-Build Unit & Source Integration Tests + >= 85% Coverage Gate
+  # =========================================================================
+  stage-4-pre-build-tests-and-coverage:
+    name: "Stage 4: Unit + Integration Tests & Coverage (${{ matrix.os }})"
+    needs: [stage-2-sast-and-secrets, stage-3-sca-and-licenses]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run Unit Tests
+        run: cargo test --workspace --lib --bins
+      - name: Run In-Process Source Integration Tests
+        run: cargo test --workspace --test '*'
+      - name: Run Tier 3 ML Unit & Integration Tests
+        run: cargo test --workspace --all-targets --features ml
+      - name: Check Wasm and WASI Compilation
+        run: |
+          cargo check --target wasm32-unknown-unknown -p wasm
+          cargo check --target wasm32-wasip1 -p wasm
+      - name: Enforce >= 85% Line Coverage Gate
+        run: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
+      - name: Setup uv for Python Gates
+        uses: astral-sh/setup-uv@v5
+      - name: Run Python Unit & Middleware Tests (>= 85% Line Coverage)
+        shell: bash
+        run: |
+          uv venv test_env
+          uv pip install --python test_env -e crates/context-sanitizer-py pytest pytest-cov
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            test_env/Scripts/python -m pytest crates/context-sanitizer-py/tests --cov=context_sanitizer --cov-fail-under=85
+          else
+            test_env/bin/python -m pytest crates/context-sanitizer-py/tests --cov=context_sanitizer --cov-fail-under=85
+          fi
+
+  # =========================================================================
+  # Stage 5: Multi-Target Release Compilation (CLI, Wheels, Wasm)
+  # =========================================================================
+  stage-5-build-cli:
+    name: "Stage 5: Build CLI (${{ matrix.target }})"
+    needs: [stage-4-pre-build-tests-and-coverage]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cargo install cross
+            cross build --release --target ${{ matrix.target }} -p context-sanitizer-cli
+          else
+            cargo build --release --target ${{ matrix.target }} -p context-sanitizer-cli
+          fi
+      - name: Package Binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          BIN_NAME="context-sanitizer"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            BIN_NAME="context-sanitizer.exe"
+            cp "target/${{ matrix.target }}/release/$BIN_NAME" dist/
+            cd dist && 7z a "context-sanitizer-${{ matrix.target }}.zip" "$BIN_NAME" && cd ..
+          else
+            cp "target/${{ matrix.target }}/release/$BIN_NAME" dist/
+            tar -czf "dist/context-sanitizer-${{ matrix.target }}.tar.gz" -C dist "$BIN_NAME"
+          fi
+      - name: Upload CLI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: dist/context-sanitizer-${{ matrix.target }}.*
+
+  stage-5-build-wheels:
+    name: "Stage 5: Build Python Wheels (${{ matrix.os }})"
+    needs: [stage-4-pre-build-tests-and-coverage]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v5
+      - name: Build Wheel via Maturin
+        run: uv run --with maturin maturin build --release --manifest-path crates/context-sanitizer-py/Cargo.toml --out dist/wheels
+      - name: Upload Wheel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: dist/wheels/*.whl
+
+  stage-5-build-wasm:
+    name: "Stage 5: Build WebAssembly & WASI"
+    needs: [stage-4-pre-build-tests-and-coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.95
+      - name: Build WebAssembly Browser & Node.js Artifacts
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p wasm
+          wasm-bindgen target/wasm32-unknown-unknown/release/wasm.wasm --out-dir wasm/pkg --target nodejs
+          echo '{"type": "commonjs"}' > wasm/pkg/package.json
+      - name: Build WASI Target
+        run: |
+          cargo build --release --target wasm32-wasip1 -p wasm
+          mkdir -p dist/wasm
+          cp target/wasm32-wasip1/release/wasm.wasm dist/wasm/context-sanitizer.wasi.wasm
+      - name: Package npm Bundle
+        run: |
+          tar -czf dist/wasm/context-sanitizer-wasm.tar.gz -C wasm pkg package.json types
+      - name: Upload Wasm Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-artifacts
+          path: dist/wasm/*
+
+  # =========================================================================
+  # Stage 6: Post-Build Black-Box Verification, SBOM, Checksums & Publishing
+  # =========================================================================
+  stage-6-verification-sbom-and-publish:
+    name: "Stage 6: Post-Build E2E, SBOMs & Release Publishing"
+    needs: [stage-5-build-cli, stage-5-build-wheels, stage-5-build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+      - uses: astral-sh/setup-uv@v5
+
+      # Download all artifacts from Stage 5
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Organize Artifact Directory
+        run: |
+          mkdir -p published-assets
+          find release-artifacts/ -type f -exec cp {} published-assets/ \;
+          ls -la published-assets/
+
+      # Post-build E2E Verification
+      - name: Execute Node.js Wasm Black-Box E2E Suite
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.95
+          cargo build --release --target wasm32-unknown-unknown -p wasm
+          wasm-bindgen target/wasm32-unknown-unknown/release/wasm.wasm --out-dir wasm/pkg --target nodejs
+          echo '{"type": "commonjs"}' > wasm/pkg/package.json
+          node wasm/tests/e2e_wasm_client.mjs
+
+      - name: Verify Python Wheels in Clean Environment
+        shell: bash
+        run: |
+          uv venv clean_env
+          WHEEL=$(ls published-assets/*manylinux*.whl || ls published-assets/*.whl | head -n 1)
+          uv pip install --python clean_env "$WHEEL" pytest
+          clean_env/bin/python -m pytest crates/context-sanitizer-py/tests/e2e_python_wheel.py -v
+
+      # Generate Software Bill of Materials (SBOM)
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: cyclonedx-json
+          output-file: published-assets/context-sanitizer.cyclonedx.json
+
+      # Generate SHA-256 Checksum Manifest
+      - name: Compute SHA-256 Checksums
+        run: |
+          cd published-assets
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS
+          cat SHA256SUMS
+
+      # Publish GitHub Release
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        with:
+          files: published-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
