@@ -1,6 +1,6 @@
 # context-sanitizer
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-reidlai-orange?logo=buy-me-a-coffee)](https://www.buymeacoffee.com/reidlai)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-reidlai-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/reidlai)
 
 **context-sanitizer** is a blazingly fast, local Rust proxy and library that intercepts LLM API traffic to act as a **System One semantic firewall** and token compressor.
 
@@ -499,7 +499,7 @@ Encountered a bug, security vulnerability, or have an idea for a new feature? Pl
 
 If you find context-sanitizer valuable for securing your LLM pipelines or saving context tokens, consider supporting ongoing development:
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-reidlai-orange?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/reidlai)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor%20on%20GitHub-reidlai-ea4aaa?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/reidlai)
 
 ## License
 
