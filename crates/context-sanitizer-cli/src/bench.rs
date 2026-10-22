@@ -77,7 +77,7 @@ pub fn run_corpus_benchmark(
 
     let p50_ns = latencies_ns.get(p50_idx).copied().unwrap_or(0);
     let p99_ns = latencies_ns
-        .get(p99_idx.min(iterations - 1))
+        .get(p99_idx.min(iterations.saturating_sub(1)))
         .copied()
         .unwrap_or(0);
 

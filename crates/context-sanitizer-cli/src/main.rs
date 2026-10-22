@@ -142,11 +142,7 @@ fn analyze_payload(raw: &str, rate: f32) -> (String, XRayReport) {
                     stats.compressed_tokens,
                     tier1_ns.saturating_sub(stats.elapsed_ns),
                     stats.elapsed_ns,
-                    if compressed.contains("[REDACTED_CREDENTIAL]") {
-                        1
-                    } else {
-                        0
-                    },
+                    compressed.matches("[REDACTED_CREDENTIAL]").count(),
                     vault.len(),
                     !stats.fail_open_triggered,
                     stats.fail_open_triggered,

@@ -26,24 +26,32 @@ pub fn minify_tool_definitions(tools: &mut [Value]) -> (usize, usize) {
     (original_bytes, minified_bytes)
 }
 
-/// Recursively strips `"description"`, `"title"`, `"$schema"`, `"examples"`, and `"comment"` fields.
+/// Recursively strips `"description"`, `"title"`, `"$schema"`, `"examples"`, and `"comment"` fields,
+/// while strictly preserving parameter property definitions even if named `"title"` or `"description"`.
 pub fn minify_value(val: &mut Value) {
+    minify_value_inner(val, false);
+}
+
+fn minify_value_inner(val: &mut Value, is_properties_container: bool) {
     match val {
         Value::Object(map) => {
-            // Remove prose and non-essential documentation fields
-            map.remove("description");
-            map.remove("title");
-            map.remove("$schema");
-            map.remove("examples");
-            map.remove("comment");
+            if !is_properties_container {
+                // Remove prose and non-essential documentation fields from schema nodes
+                map.remove("description");
+                map.remove("title");
+                map.remove("$schema");
+                map.remove("examples");
+                map.remove("comment");
+            }
 
-            for v in map.values_mut() {
-                minify_value(v);
+            for (k, v) in map.iter_mut() {
+                let is_props = k == "properties";
+                minify_value_inner(v, is_props);
             }
         }
         Value::Array(arr) => {
             for item in arr {
-                minify_value(item);
+                minify_value_inner(item, false);
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
@@ -125,5 +133,47 @@ mod tests {
         assert!(min_tool["function"]["parameters"]["properties"]["query"]
             .get("description")
             .is_none());
+    }
+
+    #[test]
+    fn minifies_tool_schema_preserving_properties_named_title_or_description() {
+        let mut tools = vec![json!({
+            "type": "function",
+            "function": {
+                "name": "create_item",
+                "description": "Create a new item in the backlog",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "The title of the item"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Detailed markdown description"
+                        }
+                    },
+                    "required": ["title"]
+                }
+            }
+        })];
+
+        let (orig, min) = minify_tool_definitions(&mut tools);
+        assert!(min < orig);
+        let fn_obj = &tools[0]["function"];
+        assert!(fn_obj.get("description").is_none());
+        let props = &fn_obj["parameters"]["properties"];
+        assert!(
+            props.get("title").is_some(),
+            "Property 'title' must be preserved!"
+        );
+        assert!(
+            props.get("description").is_some(),
+            "Property 'description' must be preserved!"
+        );
+        assert_eq!(props["title"]["type"], "string");
+        assert_eq!(props["description"]["type"], "string");
+        assert!(props["title"].get("description").is_none());
     }
 }

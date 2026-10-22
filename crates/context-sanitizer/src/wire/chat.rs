@@ -118,8 +118,23 @@ impl ChatCompletionRequest {
         }
 
         if let Some(idx) = latest_user_idx {
-            if let Some(ChatContent::Text(text)) = &self.messages[idx].content {
-                tail_query_text = text.clone();
+            match &self.messages[idx].content {
+                Some(ChatContent::Text(text)) => {
+                    tail_query_text = text.clone();
+                }
+                Some(ChatContent::Parts(parts)) => {
+                    for part in parts {
+                        if part.get("type").and_then(|v| v.as_str()) == Some("text") {
+                            if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
+                                if !tail_query_text.is_empty() {
+                                    tail_query_text.push(' ');
+                                }
+                                tail_query_text.push_str(t);
+                            }
+                        }
+                    }
+                }
+                None => {}
             }
         }
 
@@ -170,9 +185,19 @@ impl ChatCompletionRequest {
                         }
                     }
                     ChatContent::Parts(parts) => {
-                        for part in parts {
+                        let orig_len: usize = parts
+                            .iter()
+                            .map(|p| serde_json::to_vec(p).map(|v| v.len()).unwrap_or(0))
+                            .sum();
+                        total_original_bytes += orig_len;
+                        for part in parts.iter_mut() {
                             sanitize_json_value(part, vault);
                         }
+                        let comp_len: usize = parts
+                            .iter()
+                            .map(|p| serde_json::to_vec(p).map(|v| v.len()).unwrap_or(0))
+                            .sum();
+                        total_compressed_bytes += comp_len;
                     }
                 }
             }

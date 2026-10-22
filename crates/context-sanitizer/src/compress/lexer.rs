@@ -132,7 +132,7 @@ pub fn is_syntax_balanced(text: &str) -> bool {
 
 /// Enforces the Fail-Open Syntax Invariant (`AD-4`):
 /// Checks whether `candidate` maintains syntax integrity relative to `original`.
-/// If syntax is corrupted, returns `false` signaling the materializer to fail open.
+/// If syntax is corrupted by pruning, returns `false` signaling the materializer to fail open.
 #[must_use]
 pub fn validate_syntax_fail_open(original: &str, candidate: &str) -> bool {
     let orig_trimmed = original.trim();
@@ -146,7 +146,13 @@ pub fn validate_syntax_fail_open(original: &str, candidate: &str) -> bool {
         return false;
     }
 
-    is_syntax_balanced(candidate)
+    // Only enforce delimiter balance check if the original text was balanced!
+    // Prevents false-positive fail-open triggers on conversational prose containing emoticons (e.g. `:)`) or lists (`1)`).
+    if is_syntax_balanced(original) && !is_syntax_balanced(candidate) {
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]

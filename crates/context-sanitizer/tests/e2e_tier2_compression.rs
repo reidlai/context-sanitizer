@@ -358,5 +358,94 @@ fn e2e_story2_4_cli_black_box_execution_and_dashboard_render() {
     assert!(parsed.get("redacted_credentials").is_some());
     assert_eq!(parsed["syntax_locks_preserved"], true);
 
+    // 3. Test CLI with raw payload file without --json (verifies default ASCII dashboard rendering)
+    let ascii_output = Command::new(&bin_to_use)
+        .arg("xray")
+        .arg(&temp_payload_path)
+        .arg("--rate")
+        .arg("0.50")
+        .output()
+        .expect("failed to execute context-sanitizer xray without json");
+
+    assert!(
+        ascii_output.status.success(),
+        "ASCII dashboard execution failed: {}",
+        String::from_utf8_lossy(&ascii_output.stderr)
+    );
+    let ascii_stdout = String::from_utf8_lossy(&ascii_output.stdout);
+    assert!(ascii_stdout.contains("CONTEXT SANITIZER X-RAY"));
+    assert!(ascii_stdout.contains("Latency Breakdown"));
+    assert!(ascii_stdout.contains("Token Metrics"));
+    assert!(ascii_stdout.contains("Security & Integrity"));
+
     let _ = std::fs::remove_file(temp_payload_path);
+}
+
+#[test]
+fn e2e_story2_1_fail_open_triggered_in_compress_pipeline() {
+    let valid_json = r#"{"name": "production_cluster", "nodes": 12, "active": true}"#;
+    let mut arena = SpanArena::new(valid_json);
+
+    // Inject an invalid prune span across the key boundary to simulate candidate syntax corruption
+    arena
+        .push(Span::new(32, 40, SpanKind::Pruned))
+        .expect("valid span bounds");
+
+    let (recovered_text, stats) = compress_text_with_arena(&mut arena, 0.50, None);
+
+    // Pipeline must trigger fail-open and return original text
+    assert!(
+        stats.fail_open_triggered,
+        "fail_open_triggered must be true!"
+    );
+    assert_eq!(recovered_text, valid_json);
+    assert!(serde_json::from_str::<serde_json::Value>(&recovered_text).is_ok());
+}
+
+#[test]
+fn e2e_story2_2_tail_query_relevance_anchors_historical_turn_keywords() {
+    let chat_payload = json!({
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": "The production database cluster in us-east-1 is very very very really really very overloaded today."
+            },
+            {
+                "role": "assistant",
+                "content": "I understand the database status."
+            },
+            {
+                "role": "user",
+                "content": "Can you check the database cluster health?"
+            }
+        ]
+    });
+
+    let vault = VaultHandle::new();
+    let (compressed_json, stats) =
+        sanitize_and_compress_chat_completions_json(&chat_payload.to_string(), &vault, 0.50)
+            .expect("sanitization and compression succeeds");
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&compressed_json).expect("valid JSON returned");
+    let historical_user_turn = parsed["messages"][0]["content"]
+        .as_str()
+        .expect("string content");
+
+    // Keywords matching tail query ("database", "cluster") must be preserved in history!
+    assert!(
+        historical_user_turn.contains("database"),
+        "Historical turn must preserve 'database' from tail query: {}",
+        historical_user_turn
+    );
+    assert!(
+        historical_user_turn.contains("cluster"),
+        "Historical turn must preserve 'cluster' from tail query: {}",
+        historical_user_turn
+    );
+    assert!(
+        stats.pruned_spans_count > 0,
+        "Filler spans should be pruned"
+    );
 }

@@ -157,17 +157,40 @@ impl<'a> SpanArena<'a> {
             return self.source.to_owned();
         }
 
+        let mut redacted_spans: Vec<&Span> = Vec::new();
+        let mut shadow_candidates: Vec<&Span> = Vec::new();
+        let mut raw_locked: Vec<(usize, usize)> = Vec::new();
+        let mut prune_intervals: Vec<(usize, usize)> = Vec::new();
+
+        for span in &self.spans {
+            match &span.kind {
+                SpanKind::Redacted(_) => redacted_spans.push(span),
+                SpanKind::Shadow(_) => shadow_candidates.push(span),
+                SpanKind::Locked => {
+                    if apply_pruning {
+                        raw_locked.push((span.start, span.end));
+                    }
+                }
+                SpanKind::Pruned => {
+                    if apply_pruning {
+                        prune_intervals.push((span.start, span.end));
+                    }
+                }
+                SpanKind::Retained => {}
+            }
+        }
+
+        if redacted_spans.is_empty() && shadow_candidates.is_empty() && prune_intervals.is_empty() {
+            return self.source.to_owned();
+        }
+
         // 1. Resolve `Redacted` (precedence 5) first. Overlapping `Redacted` spans must merge into
         //    the union of their byte ranges (Epic 1 Retro Action Item 1) so no credential substring leaks.
-        let mut redacted_spans: Vec<Span> = self
-            .spans
-            .iter()
-            .filter(|s| matches!(s.kind, SpanKind::Redacted(_)))
-            .cloned()
-            .collect();
         redacted_spans.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
 
-        let mut accepted: Vec<Span> = Vec::with_capacity(self.spans.len());
+        let mut accepted: Vec<Span> = Vec::with_capacity(
+            redacted_spans.len() + shadow_candidates.len() + prune_intervals.len(),
+        );
         for span in redacted_spans {
             let mask = match span.kind {
                 SpanKind::Redacted(m) => m,
@@ -184,11 +207,6 @@ impl<'a> SpanArena<'a> {
 
         // 2. Resolve `Shadow` (precedence 4) replacements. Shadow spans that overlap any accepted
         //    `Redacted` union or prior `Shadow` span are dropped.
-        let mut shadow_candidates: Vec<&Span> = self
-            .spans
-            .iter()
-            .filter(|s| matches!(s.kind, SpanKind::Shadow(_)))
-            .collect();
         shadow_candidates.sort_by(|a, b| {
             a.start
                 .cmp(&b.start)
@@ -204,69 +222,50 @@ impl<'a> SpanArena<'a> {
             }
         }
 
-        if apply_pruning {
-            let mut prune_intervals: Vec<(usize, usize)> = self
-                .spans
-                .iter()
-                .filter(|s| matches!(s.kind, SpanKind::Pruned))
-                .map(|s| (s.start, s.end))
-                .collect();
+        if apply_pruning && !prune_intervals.is_empty() {
+            // Sort accepted higher-priority spans by start offset for binary-search overlap checks
+            accepted.sort_by_key(|s| s.start);
 
-            if !prune_intervals.is_empty() {
-                // Sort accepted higher-priority spans by start offset for binary-search overlap checks
-                accepted.sort_by_key(|s| s.start);
-
-                // Collect & merge `Locked` protection ranges (precedence 3) which block `Pruned` (precedence 2) spans
-                let mut raw_locked: Vec<(usize, usize)> = self
-                    .spans
-                    .iter()
-                    .filter(|s| matches!(s.kind, SpanKind::Locked))
-                    .map(|s| (s.start, s.end))
-                    .collect();
-                raw_locked.sort_unstable_by_key(|&(start, _)| start);
-
-                let mut locked_ranges: Vec<(usize, usize)> = Vec::with_capacity(raw_locked.len());
-                for (start, end) in raw_locked {
-                    if let Some(last) = locked_ranges.last_mut() {
-                        if start <= last.1 {
-                            last.1 = last.1.max(end);
-                            continue;
-                        }
-                    }
-                    locked_ranges.push((start, end));
-                }
-
-                // Merge overlapping/adjacent `Pruned` spans (precedence 2) and accept those that do not
-                // overlap any `Redacted`, `Shadow`, or `Locked` span.
-                prune_intervals.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
-
-                let mut merged_prunes: Vec<(usize, usize)> =
-                    Vec::with_capacity(prune_intervals.len());
-                for (start, end) in prune_intervals {
-                    let acc_idx = accepted.partition_point(|ex| ex.end <= start);
-                    let overlaps_accepted =
-                        acc_idx < accepted.len() && accepted[acc_idx].start < end;
-
-                    let lock_idx = locked_ranges.partition_point(|&(_, l_end)| l_end <= start);
-                    let overlaps_locked =
-                        lock_idx < locked_ranges.len() && locked_ranges[lock_idx].0 < end;
-
-                    let overlaps_higher = overlaps_accepted || overlaps_locked;
-                    if overlaps_higher {
+            // Collect & merge `Locked` protection ranges (precedence 3) which block `Pruned` (precedence 2) spans
+            let mut locked_ranges: Vec<(usize, usize)> = Vec::with_capacity(raw_locked.len());
+            for (start, end) in raw_locked {
+                if let Some(last) = locked_ranges.last_mut() {
+                    if start <= last.1 {
+                        last.1 = last.1.max(end);
                         continue;
                     }
-                    if let Some(last) = merged_prunes.last_mut() {
-                        if start <= last.1 {
-                            last.1 = last.1.max(end);
-                            continue;
-                        }
-                    }
-                    merged_prunes.push((start, end));
                 }
+                locked_ranges.push((start, end));
+            }
 
-                for (start, end) in merged_prunes {
-                    accepted.push(Span::new(start, end, SpanKind::Pruned));
+            // Merge overlapping/adjacent `Pruned` spans (precedence 2) and accept those that do not
+            // overlap any `Redacted`, `Shadow`, or `Locked` span.
+            prune_intervals.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+
+            let mut merged_prunes: Vec<(usize, usize)> = Vec::with_capacity(prune_intervals.len());
+            for (start, end) in prune_intervals {
+                let acc_idx = accepted.partition_point(|ex| ex.end <= start);
+                let overlaps_accepted = acc_idx < accepted.len() && accepted[acc_idx].start < end;
+
+                let lock_idx = locked_ranges.partition_point(|&(_, l_end)| l_end <= start);
+                let overlaps_locked =
+                    lock_idx < locked_ranges.len() && locked_ranges[lock_idx].0 < end;
+
+                let overlaps_higher = overlaps_accepted || overlaps_locked;
+                if overlaps_higher {
+                    continue;
                 }
+                if let Some(last) = merged_prunes.last_mut() {
+                    if start <= last.1 {
+                        last.1 = last.1.max(end);
+                        continue;
+                    }
+                }
+                merged_prunes.push((start, end));
+            }
+
+            for (start, end) in merged_prunes {
+                accepted.push(Span::new(start, end, SpanKind::Pruned));
             }
         }
 

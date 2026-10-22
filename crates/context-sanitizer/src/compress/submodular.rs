@@ -4,7 +4,7 @@
 //! immutable [`SpanKind::Locked`] syntax spans, Tier 1 secrets, and auto-anchored [`SpanKind::Retained`] queries.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BinaryHeap, HashMap};
 
 use crate::arena::{Span, SpanArena, SpanKind};
 use crate::compress::bm25::TailQueryAnchor;
@@ -16,7 +16,7 @@ use crate::SanitizerError;
 struct HeapItem {
     id: usize,
     priority: f32,
-    iteration: usize,
+    seen_pruned_count: u32,
 }
 
 impl Eq for HeapItem {}
@@ -34,17 +34,17 @@ impl PartialOrd for HeapItem {
 }
 
 #[derive(Debug, Clone)]
-struct CandidateSpan {
+struct CandidateSpan<'a> {
     start: usize,
     end: usize,
     len: usize,
-    word: String,
+    word: &'a str,
     base_significance: f32,
 }
 
 /// Applies lazy-greedy submodular knapsack selection to mark pruneable tokens as [`SpanKind::Pruned`].
 ///
-/// - `target_rate`: Target compression ratio ($0.40 \le \text{rate} \le 0.70$).
+/// - `target_rate`: Target compression ratio ($0.0 \le \text{rate} \le 0.70$).
 /// - `tail_query`: Optional user query text for BM25 tail anchoring.
 ///
 /// # Errors
@@ -60,7 +60,7 @@ pub fn prune_unlocked_context(
         return Ok(0);
     }
 
-    let clamped_rate = target_rate.clamp(0.40, 0.70);
+    let clamped_rate = target_rate.clamp(0.0, 0.70);
     let anchor = tail_query.map(TailQueryAnchor::new).unwrap_or_default();
 
     // 1. Collect and merge all existing protected byte ranges (Redacted, Shadow, Locked, Retained).
@@ -84,7 +84,7 @@ pub fn prune_unlocked_context(
     }
 
     // 2. Identify pruneable candidate word tokens outside protected ranges in linear O(N) time.
-    let mut candidates: Vec<CandidateSpan> = Vec::with_capacity((total_len / 8).max(16));
+    let mut candidates: Vec<CandidateSpan<'_>> = Vec::with_capacity((total_len / 8).max(16));
     let bytes = source.as_bytes();
     let mut i = 0usize;
     let mut p_idx = 0usize;
@@ -150,7 +150,7 @@ pub fn prune_unlocked_context(
                     start,
                     end: prune_end,
                     len: prune_end - start,
-                    word: word_slice.to_ascii_lowercase(),
+                    word: word_slice,
                     base_significance: s_score,
                 });
             }
@@ -175,14 +175,14 @@ pub fn prune_unlocked_context(
         heap.push(HeapItem {
             id,
             priority,
-            iteration: 0,
+            seen_pruned_count: 0,
         });
     }
 
-    let mut current_step = 0usize;
     let mut pruned_bytes = 0usize;
-    let mut pruned_counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut selected_candidates = Vec::new();
+    let mut word_pruned_counts: HashMap<&str, u32> =
+        HashMap::with_capacity(candidates.len().min(1024));
+    let mut selected_candidates = Vec::with_capacity(candidates.len().min(512));
 
     // 4. Lazy-greedy execution loop
     while let Some(top) = heap.pop() {
@@ -191,16 +191,16 @@ pub fn prune_unlocked_context(
         }
 
         let cand = &candidates[top.id];
-        if top.iteration == current_step {
-            // Evaluated at current iteration: greedily accept
+        let current_word_pruned = word_pruned_counts.get(cand.word).copied().unwrap_or(0);
+
+        if top.seen_pruned_count == current_word_pruned {
+            // Fresh priority: greedily accept
             selected_candidates.push(top.id);
             pruned_bytes += cand.len;
-            *pruned_counts.entry(cand.word.clone()).or_insert(0) += 1;
-            current_step += 1;
+            *word_pruned_counts.entry(cand.word).or_insert(0) += 1;
         } else {
             // Recompute marginal priority with diminishing returns on repeated words
-            let count = pruned_counts.get(&cand.word).copied().unwrap_or(0);
-            let penalty = 1.0 + 0.25 * (count as f32);
+            let penalty = 1.0 + 0.25 * (current_word_pruned as f32);
             let recomputed_priority =
                 (cand.len as f32) / ((cand.base_significance * penalty) + 0.1);
 
@@ -212,13 +212,12 @@ pub fn prune_unlocked_context(
             if is_still_max {
                 selected_candidates.push(top.id);
                 pruned_bytes += cand.len;
-                *pruned_counts.entry(cand.word.clone()).or_insert(0) += 1;
-                current_step += 1;
+                *word_pruned_counts.entry(cand.word).or_insert(0) += 1;
             } else {
                 heap.push(HeapItem {
                     id: top.id,
                     priority: recomputed_priority,
-                    iteration: current_step,
+                    seen_pruned_count: current_word_pruned,
                 });
             }
         }
@@ -248,9 +247,9 @@ mod tests {
             prune_unlocked_context(&mut arena, 0.50, Some("database credentials")).unwrap_or(0);
         assert!(pruned_count > 0);
 
-        let output = arena.materialize();
-        // Preserves key semantic entities anchored in the tail query
-        assert!(output.contains("database"));
-        assert!(output.contains("credentials"));
+        let result = arena.materialize();
+        // Query entities must be preserved
+        assert!(result.contains("database"));
+        assert!(result.contains("credentials"));
     }
 }
