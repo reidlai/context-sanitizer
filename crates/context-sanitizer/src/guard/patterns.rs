@@ -286,11 +286,6 @@ pub fn scan_and_vault_pii(arena: &mut SpanArena<'_>, vault: &VaultHandle) {
 }
 
 #[inline]
-const fn is_email_local_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'%' | b'+' | b'-')
-}
-
-#[inline]
 const fn is_email_domain_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')
 }
@@ -305,7 +300,7 @@ fn scan_emails(src: &str, arena: &mut SpanArena<'_>, vault: &VaultHandle) {
     while i < len {
         if bytes[i] == b'@' {
             let mut start = i;
-            while start > min_local_bound && is_email_local_char(bytes[start - 1]) {
+            while start > min_local_bound && crate::guard::is_email_local_byte(bytes[start - 1]) {
                 start -= 1;
             }
             while start < i && bytes[start] == b'.' {

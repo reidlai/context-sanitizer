@@ -16,19 +16,31 @@
 //!   fail-open fallback guaranteeing `0%` downstream JSON parse errors.
 
 pub mod arena;
+pub mod compress;
 pub mod guard;
 pub mod wire;
 
 use thiserror::Error;
 
 pub use arena::{Span, SpanArena, SpanKind};
+pub use compress::{compress_text, compress_text_with_arena, CompressionStats};
 pub use guard::{
     run_tier1_guard, sanitize_str_with_vault, PiiKind, VaultHandle, REDACTED_CREDENTIAL_MASK,
 };
 pub use wire::{
-    sanitize_chat_completions_json, sanitize_completions_json, ChatCompletionRequest, ChatContent,
-    ChatMessage, CompletionPrompt, CompletionRequest,
+    sanitize_and_compress_chat_completions_json, sanitize_chat_completions_json,
+    sanitize_completions_json, ChatCompletionRequest, ChatContent, ChatMessage, CompletionPrompt,
+    CompletionRequest,
 };
+
+/// High-level function to sanitize and statistically compress an OpenAI chat JSON payload.
+pub fn compress_chat_json(
+    payload_json: &str,
+    vault: &VaultHandle,
+    target_rate: f32,
+) -> Result<(String, CompressionStats), SanitizerError> {
+    sanitize_and_compress_chat_completions_json(payload_json, vault, target_rate)
+}
 
 /// Unified error type across the `context-sanitizer` pipeline (`AD-2`).
 #[derive(Debug, Error, PartialEq, Eq)]

@@ -37,11 +37,6 @@ pub fn shannon_entropy(token: &str) -> f64 {
     entropy
 }
 
-#[inline]
-const fn is_valid_email_local_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'%' | b'+' | b'-')
-}
-
 /// Returns `true` if `token` is a candidate standalone high-entropy secret (`len >= 20`, `H >= 4.5`,
 /// mixed character classes, and not a benign URL, path, shadow token, or snake/camel identifier).
 #[must_use]
@@ -70,7 +65,7 @@ pub fn is_high_entropy_secret_token(token: &str) -> bool {
     if let Some((local, domain)) = token.split_once('@') {
         if !local.is_empty()
             && !domain.contains('@')
-            && local.bytes().all(is_valid_email_local_byte)
+            && local.bytes().all(crate::guard::is_email_local_byte)
             && domain.contains('.')
             && domain
                 .bytes()
