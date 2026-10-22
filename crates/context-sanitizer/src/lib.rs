@@ -18,6 +18,7 @@
 pub mod arena;
 pub mod compress;
 pub mod guard;
+pub mod ml;
 pub mod wire;
 
 use thiserror::Error;
@@ -26,6 +27,12 @@ pub use arena::{Span, SpanArena, SpanKind};
 pub use compress::{compress_text, compress_text_with_arena, CompressionStats};
 pub use guard::{
     run_tier1_guard, sanitize_str_with_vault, PiiKind, VaultHandle, REDACTED_CREDENTIAL_MASK,
+};
+#[cfg(feature = "ml")]
+pub use ml::CandleGuard;
+pub use ml::{
+    chunk_and_rank_windows, detect_markdown_exfiltration, scan_fast_breaker, GatekeeperResult,
+    SemanticGuard, TextWindow, ThreatGatekeeper, ThreatVerdict, Tier2Compressor, TokenCompressor,
 };
 pub use wire::{
     sanitize_and_compress_chat_completions_json, sanitize_chat_completions_json,
@@ -76,6 +83,14 @@ pub enum SanitizerError {
         /// Human-readable reason for the block.
         reason: String,
     },
+
+    /// Raised when a neural model checkpoint or tokenizer fails to load (`AD-5`).
+    #[error("model load error: {0}")]
+    ModelLoadError(String),
+
+    /// Raised when guard evaluation exceeds the nanosecond watchdog deadline (`NFR-1`).
+    #[error("guard evaluation timeout: {0} ns")]
+    GuardTimeout(u64),
 }
 
 /// Sanitizes a raw text payload using a newly created session [`VaultHandle`] pre-configured with
