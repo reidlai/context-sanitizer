@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "context-sanitizer-py"
+version = "0.1.0"
+description = "Zero-C Python wheel & turnkey agent framework middleware for context-sanitizer"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Reid Lai" }]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Security",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.maturin]
+python-source = "python"
+module-name = "context_sanitizer._core"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "e2e_*.py"]
+

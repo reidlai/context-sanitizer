@@ -39,6 +39,8 @@ jobs:
         run: |
           grep -q '#!\[forbid(unsafe_code)\]' crates/context-sanitizer/src/lib.rs
           grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer/src/lib.rs
+          grep -q '#!\[forbid(unsafe_code)\]' crates/context-sanitizer-py/src/lib.rs
+          grep -q '#!\[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)\]' crates/context-sanitizer-py/src/lib.rs
       - name: Run Semgrep SAST Scan
         uses: returntocorp/semgrep-action@v1
         with:
@@ -91,6 +93,22 @@ jobs:
         run: cargo test --workspace --all-targets --features ml
       - name: Enforce >= 85% Line Coverage Gate
         run: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
+      - name: Setup uv for Python Gates
+        uses: astral-sh/setup-uv@v5
+      - name: Run Ruff Lint and Format Checks
+        run: |
+          uv run --with ruff ruff check crates/context-sanitizer-py
+          uv run --with ruff ruff format --check crates/context-sanitizer-py
+      - name: Run Python Unit & Middleware Tests (>= 85% Line Coverage)
+        shell: bash
+        run: |
+          uv venv test_env
+          uv pip install --python test_env -e crates/context-sanitizer-py pytest pytest-cov
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            test_env/Scripts/python -m pytest crates/context-sanitizer-py/tests --cov=context_sanitizer --cov-fail-under=85
+          else
+            test_env/bin/python -m pytest crates/context-sanitizer-py/tests --cov=context_sanitizer --cov-fail-under=85
+          fi
 
   # Stage 5: Gated Release Artifact Build
   stage-5-gated-release-build:
@@ -107,6 +125,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build Release Workspace Artifacts
         run: cargo build --release --workspace --all-targets
+      - name: Setup uv for Python Wheel Build
+        uses: astral-sh/setup-uv@v5
+      - name: Build Python Release Wheel
+        run: uv run --with maturin maturin build --release --manifest-path crates/context-sanitizer-py/Cargo.toml --out target/wheels
 
   # Stage 6: Post-Build Black-Box Artifact E2E Verification
   stage-6-post-build-e2e-verification:
@@ -136,4 +158,18 @@ jobs:
             ./target/release/context-sanitizer.exe xray --bench
           else
             ./target/release/context-sanitizer xray --bench
+          fi
+      - name: Setup uv for Post-Build Python Wheel Verification
+        uses: astral-sh/setup-uv@v5
+      - name: Build and Verify Python Wheel in Clean Virtualenv
+        shell: bash
+        run: |
+          uv run --with maturin maturin build --release --manifest-path crates/context-sanitizer-py/Cargo.toml --out target/wheels
+          uv venv clean_env
+          WHEEL=$(ls target/wheels/*.whl | head -n 1)
+          uv pip install --python clean_env "$WHEEL" pytest
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            clean_env/Scripts/python -m pytest crates/context-sanitizer-py/tests/e2e_python_wheel.py -v
+          else
+            clean_env/bin/python -m pytest crates/context-sanitizer-py/tests/e2e_python_wheel.py -v
           fi
