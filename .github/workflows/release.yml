@@ -14,6 +14,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+
 
 permissions:
   contents: write
@@ -113,6 +115,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Build CLI Binary for Integration Tests
+        run: cargo build -p context-sanitizer-cli --bin context-sanitizer
       - name: Run Unit Tests
         run: cargo test --workspace --lib --bins
       - name: Run In-Process Source Integration Tests
