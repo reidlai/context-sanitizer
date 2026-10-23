@@ -1,6 +1,10 @@
 [package]
 name = "context-sanitizer-cli"
 description = "Context X-Ray diagnostic and benchmarking CLI for the context-sanitizer framework."
+readme = "../../README.md"
+categories = ["command-line-utilities", "development-tools"]
+keywords = ["cli", "benchmarking", "llm", "prompt-security"]
+documentation = "https://docs.rs/context-sanitizer-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

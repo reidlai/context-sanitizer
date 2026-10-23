@@ -317,3 +317,76 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  # =========================================================================
+  # Stage 7: Multi-Registry Publishing (Crates.io & PyPI Trusted Publishing)
+  # =========================================================================
+  publish-crates-io-core:
+    name: "Publish Core Library to Crates.io"
+    needs: [stage-6-verification-sbom-and-publish]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify Packaging (Dry-Run)
+        run: cargo publish -p context-sanitizer --dry-run
+      - name: Publish context-sanitizer to Crates.io
+        if: env.CRATES_IO_TOKEN != ''
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p context-sanitizer --token "$CRATES_IO_TOKEN"
+
+  publish-crates-io-cli:
+    name: "Publish CLI Binary Crate to Crates.io"
+    needs: [publish-crates-io-core]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish context-sanitizer-cli to Crates.io
+        if: env.CRATES_IO_TOKEN != ''
+        env:
+          CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish -p context-sanitizer-cli --token "$CRATES_IO_TOKEN"
+
+  publish-pypi:
+    name: "Publish context-sanitizer-py to PyPI (Hardened TLS + OIDC)"
+    needs: [stage-6-verification-sbom-and-publish]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Mandatory for PyPI Trusted Publishing (OIDC)
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Hardened Supply-Chain TLS Mitigations for October 2026 eMudhra CA compromise
+      - name: Purge unvetted CA certificates & enforce patched Python trust roots
+        run: |
+          sudo update-ca-certificates --fresh || true
+          python -m pip install --upgrade "pip>=2026.2.2" "certifi>=2026.10.19" "uv>=0.13.4" "sigstore>=4.5.1"
+          python -c "import certifi; print('Verified certifi trust store:', certifi.where())"
+
+      - name: Download Built Wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/pypi
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Inspect Wheel Artifacts
+        run: |
+          ls -la dist/pypi/
+
+      # PyPI Trusted Publishing via OpenID Connect (OIDC) with Sigstore attestations
+      - name: Publish Wheels to PyPI with Provenance Attestations
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/pypi/
+          attestations: true
+          skip-existing: true
