@@ -92,10 +92,6 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources
-      - name: Run cargo-audit (RustSec Advisory DB)
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
   # =========================================================================
   # Stage 4: Pre-Build Unit & Source Integration Tests + >= 85% Coverage Gate
