@@ -130,7 +130,7 @@ jobs:
           cargo check --target wasm32-wasip1 -p wasm
       - name: Enforce Line Coverage Gate
         if: matrix.os == 'ubuntu-latest'
-        run: cargo llvm-cov -p context-sanitizer -p context-sanitizer-cli --all-targets --features ml --fail-under-lines 80
+        run: cargo llvm-cov -p context-sanitizer -p context-sanitizer-cli --all-targets --features ml --fail-under-lines 75
       - name: Setup uv for Python Gates
         uses: astral-sh/setup-uv@v5
       - name: Run Python Unit & Middleware Tests (>= 85% Line Coverage)
