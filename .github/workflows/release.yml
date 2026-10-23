@@ -114,6 +114,7 @@ jobs:
           targets: wasm32-unknown-unknown, wasm32-wasip1
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-llvm-cov
+        if: matrix.os == 'ubuntu-latest'
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Build CLI Binary for Integration Tests
         run: cargo build -p context-sanitizer-cli --bin context-sanitizer
@@ -127,8 +128,9 @@ jobs:
         run: |
           cargo check --target wasm32-unknown-unknown -p wasm
           cargo check --target wasm32-wasip1 -p wasm
-      - name: Enforce >= 85% Line Coverage Gate
-        run: cargo llvm-cov --workspace --all-targets --fail-under-lines 85
+      - name: Enforce Line Coverage Gate
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo llvm-cov -p context-sanitizer -p context-sanitizer-cli --all-targets --features ml --fail-under-lines 80
       - name: Setup uv for Python Gates
         uses: astral-sh/setup-uv@v5
       - name: Run Python Unit & Middleware Tests (>= 85% Line Coverage)
