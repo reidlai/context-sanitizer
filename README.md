@@ -179,7 +179,7 @@ else:
 
 ## Quick Start: Rust
 
-You can embed the pure Rust core directly into your own proxy servers or Rust-based AI agents, and swap models via builder configuration or the `SemanticGuard` and `TokenCompressor` traits.
+You can embed the pure Rust core directly into your own proxy servers or Rust-based AI agents, and optionally enable neural inference with `--features ml`.
 
 ### Installation
 
@@ -190,37 +190,34 @@ cargo add context-sanitizer
 ### Usage
 
 ```rust
-use context_sanitizer::{SanitizerEngine, Decision};
+use context_sanitizer::{compress_chat_json, sanitize_str_with_vault, VaultHandle};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Configurable builder (swap Hugging Face or local model_id anytime)
-    let engine = SanitizerEngine::builder()
-        .with_target_compression_rate(0.35)
-        .with_guard_model("MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli")
-        .with_compressor_model("microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank")
-        .build()?;
-    
-    let dirty_payload = r#"
-        {
-            "role": "user",
-            "content": "My GitHub token is <YOUR_GITHUB_TOKEN>. Check account alice@acme.com please."
-        }
-    "#;
-    
-    // Inspects payload: root keys -> [REDACTED_CREDENTIAL], PII -> session Shadow Vault, syntax-locked compression
-    match engine.inspect(dirty_payload) {
-        Decision::Allowed(safe_payload) => {
-            println!("Safe Payload for LLM:\n{}", safe_payload.content);
+    // 1. Initialize session-scoped cryptographic VaultHandle with authorized tool whitelists
+    let vault = VaultHandle::new();
+    vault.allow_destination("db_tool");
 
-            // Rehydrate session-scoped PII tokens locally when executing tool calls
-            let tool_args = r#"{"email": "<SHADOW:EMAIL_8f3a2c>"}"#;
-            let rehydrated = safe_payload.vault_handle().rehydrate(tool_args, "db_tool")?;
-            println!("Rehydrated Tool Args:\n{}", rehydrated);
-        }
-        Decision::Blocked(violation) => {
-            eprintln!("⚠️ Security Alert: Payload blocked! [{}] {}", violation.category, violation.reason);
-        }
-    }
+    // 2. Deterministic secret redaction + operational PII shadow tokenization
+    let dirty_prompt = "My GitHub token is ghp_123456789012345678901234567890123456. Check account alice@acme.com please.";
+    let safe_prompt = sanitize_str_with_vault(dirty_prompt, &vault);
+    println!("Safe Payload for LLM:\n{}", safe_prompt);
+    // => "My GitHub token is [REDACTED_CREDENTIAL]. Check account <SHADOW:EMAIL_8f3a2c> please."
+
+    // 3. Compress OpenAI-compatible chat JSON payloads
+    let chat_payload = r#"{
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "user", "content": "Check account alice@acme.com please."}
+        ]
+    }"#;
+    let (compressed_json, stats) = compress_chat_json(chat_payload, &vault, 0.35)?;
+    println!("\nCompressed JSON:\n{}", compressed_json);
+    println!("Tokens: {} -> {} ({:.1}% saved)", stats.original_tokens, stats.compressed_tokens, (1.0 - stats.ratio) * 100.0);
+
+    // 4. Rehydrate session-scoped PII tokens locally when executing agent tool calls
+    let tool_args = r#"{"email": "<SHADOW:EMAIL_8f3a2c>"}"#;
+    let rehydrated = vault.rehydrate(tool_args, "db_tool")?;
+    println!("\nRehydrated Tool Args:\n{}", rehydrated);
 
     Ok(())
 }

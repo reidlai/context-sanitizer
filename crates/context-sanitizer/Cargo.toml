@@ -1,6 +1,10 @@
 [package]
 name = "context-sanitizer"
 description = "Pure-Rust System One semantic firewall, split-secret shadow vault, and syntax-safe token compressor for LLM and Agentic AI contexts."
+readme = "../../README.md"
+categories = ["development-tools", "parsing", "web-programming"]
+keywords = ["sanitizer", "llm", "pii", "token-compression", "prompt-security"]
+documentation = "https://docs.rs/context-sanitizer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
