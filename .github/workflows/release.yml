@@ -345,7 +345,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
-      name: crates.io
+      name: crates.io-cli
       url: https://crates.io/crates/context-sanitizer-cli
     steps:
       - uses: actions/checkout@v4
